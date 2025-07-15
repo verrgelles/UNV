@@ -23,35 +23,3 @@ def raw_packet_to_dict(payload: bytes):
             "count_pos": count_pos
         }
     return result
-
-def packet_callback(packet):
-    if packet.haslayer("Raw"):
-        payload = bytes(packet["Raw"].load)[42:]
-        try:
-            result = raw_packet_to_dict(payload)
-            if result['flag_pos'] == 1 or result['flag_neg'] == 1:
-                return result
-            else:
-                return None
-        except Exception as e:
-            return None
-    return None
-
-
-iface = "Ethernet"
-
-# Открыть интерфейс
-cap = pcapy.open_live(iface, 106, 0, 0)
-cap.setfilter("udp and src host 192.168.1.2")
-
-prev = 0
-
-# Обработка пакета
-def handle_packet(hdr, packet):
-    global prev
-    rw = packet[42:]
-    k = raw_packet_to_dict(rw)
-    print(k)
-
-# Цикл захвата
-cap.loop(0, handle_packet)  # 0 = бесконечно

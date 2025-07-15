@@ -4,7 +4,7 @@ from hardware.exceptions import SpinCoreConnectionError, SpinCoreExecutionError
 
 # === DLL подключение ===
 try:
-    dll_path = os.path.abspath('./hardware/spincore.dll')
+    dll_path = os.path.abspath('./hardware/spinCoreTest.dll')
     lib = CDLL(dll_path)
 except Exception as e:
     raise SpinCoreConnectionError(f"Ошибка загрузки DLL spincore: {e}")
