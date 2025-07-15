@@ -22,17 +22,31 @@ def open_serial_port() -> Serial:
 
 def length_to_voltage(length: float, axis: str) -> float:
     if axis == 'x':
-        return LENGTH_TO_VOLTAGE_X * length
+        factor = LENGTH_TO_VOLTAGE_X
     elif axis == 'y':
-        return LENGTH_TO_VOLTAGE_Y * length
-    raise ValueError(f"Неверная ось: {axis}")
+        factor = LENGTH_TO_VOLTAGE_Y
+    else:
+        raise ValueError(f"Неверная ось: {axis}")
+
+    voltage = 1.650 - factor * length
+
+    if 0.0 <= voltage <= 3.3:
+        return voltage
+    else:
+        raise ValueError("Недопустимое значение напряжения")
 
 def voltage_to_length(voltage: float, axis: str) -> float:
     if axis == 'x':
-        return VOLTAGE_TO_LENGTH_X * voltage
+        factor = VOLTAGE_TO_LENGTH_X
     elif axis == 'y':
-        return VOLTAGE_TO_LENGTH_Y * voltage
-    raise ValueError(f"Неверная ось: {axis}")
+        factor = VOLTAGE_TO_LENGTH_Y
+    else:
+        raise ValueError(f"Неверная ось: {axis}")
+
+    if 0.0 <= voltage <= 3.3:
+        return factor * (1.650 - voltage)
+    else:
+        raise ValueError("Недопустимое значение напряжения")
 
 def move_command(serial_device: Serial, x: float, y: float):
     """Отправляет команду на установку зеркал."""
@@ -42,28 +56,17 @@ def move_command(serial_device: Serial, x: float, y: float):
     else:
         raise MirrorCommunicationError("Напряжение вне допустимого диапазона в move_command")
 
-def move_to_position(serial_device: Serial, center: [float, float], position: [float, float]):
-    #FIXME тут может быть ошибка, проверить
-    """Перемещает зеркала в точку относительно центра."""
-    def get_voltage(pos, center_pos, axis):
-        offset = length_to_voltage(abs(pos), axis)
-        if pos >= center_pos:
-            return 1.650 - offset
-        else:
-            return 1.650 + offset
+# Позиция относительно центра (0,0) задаётся
+def move_to_position(serial_device: Serial, position):
+    x_target = length_to_voltage(position[0], axis='x')
+    y_target = length_to_voltage(position[1], axis='y')
 
-    x_center_v = get_voltage(center[0], 0, 'x')
-    y_center_v = get_voltage(center[1], 0, 'y')
-
-    x_target_v = get_voltage(position[0], center[0], 'x')
-    y_target_v = get_voltage(position[1], center[1], 'y')
-
-    if not (0 <= x_target_v <= 3.3 and 0 <= y_target_v <= 3.3):
+    if not (0 <= x_target <= 3.3 and 0 <= y_target <= 3.3):
         raise MirrorCommunicationError("Целевая позиция вне допустимого диапазона")
 
-    move_command(serial_device, x_target_v, y_target_v)
+    move_command(serial_device, x_target, y_target)
 
-def get_position(serial_device: Serial) -> [float, float]:
+def get_position(serial_device: Serial):
     """Читает текущую позицию зеркал в длинах."""
     try:
         serial_device.write(b"GETVOLTAGEFF")
@@ -79,13 +82,7 @@ def get_position(serial_device: Serial) -> [float, float]:
         if not (0 <= x <= 3.3 and 0 <= y <= 3.3):
             raise MirrorCommunicationError("Неверные значения напряжения от зеркал")
 
-        def _calc_length(voltage, axis):
-            if 3.3 >= voltage >= 1.650:
-                return 0 - length_to_voltage(voltage, axis)
-            elif 0 <= voltage < 1.650:
-                return 0 + length_to_voltage(voltage, axis)
-
-        return [_calc_length(x, 'x'), _calc_length(y, 'y')]
+        return [voltage_to_length(x, 'x'), voltage_to_length(y, 'y')]
 
     except Exception as e:
         raise MirrorCommunicationError("Не удалось получить позицию зеркал") from e

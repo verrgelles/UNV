@@ -38,17 +38,9 @@ def packet_callback(packet):
     return None
 
 
-# Выбрать вручную нужный интерфейс
-devs = pcapy.findalldevs()
+iface = "Ethernet"
 
-"""print("Интерфейсы:")
-for i, d in enumerate(devs):
-    print(f"{i}: {d}")"""
-
-print(devs[6])
-iface = devs[6]
-
-"""# Открыть интерфейс
+# Открыть интерфейс
 cap = pcapy.open_live(iface, 106, 0, 0)
 cap.setfilter("udp and src host 192.168.1.2")
 
@@ -62,4 +54,4 @@ def handle_packet(hdr, packet):
     print(k)
 
 # Цикл захвата
-cap.loop(0, handle_packet)  # 0 = бесконечно"""
+cap.loop(0, handle_packet)  # 0 = бесконечно
