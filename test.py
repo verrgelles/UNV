@@ -3,6 +3,8 @@ import time
 import numpy as np
 import pandas as pd
 import pcapy
+import seaborn as sns
+from matplotlib import pyplot as plt
 
 from hardware.mirrors import open_serial_port, get_position, move_to_position
 from hardware.spincore import impulse_builder
@@ -14,11 +16,11 @@ step = float(input())
 time_to_collect = int(input())
 
 impulse_builder(
-                1,
-                [0],
-                [1],
-                [0],
-                [time_to_collect],
+                2,
+                [0, 2],
+                [1, 1],
+                [0, 0],
+                [time_to_collect, time_to_collect],
                 time_to_collect,
                 int(1E6),
                 int(1E6)
@@ -40,7 +42,6 @@ packet_speed = 8000 #packets/s
 dt = pd.DataFrame(columns=["x", "y", "ph"])
 
 MAX_COUNT = int(packet_speed*time_to_collect)
-print(MAX_COUNT)
 packet_count = 0  # Счётчик пакетов
 
 def handle_packet(pwk, packet):
@@ -84,12 +85,31 @@ for y_t in yi:
     for x_t in xi:
         move_to_position(dev, [x_t, y_t])
         # Задержка для перемещения
-        flush_capture_buffer(cap)  # <<< очистка
+        flush_capture_buffer(cap, 0.03)  # <<< очистка
         packet_count = 0
         try:
             cap.loop(-1, wrapper_handle_packet)
         except KeyboardInterrupt:
             pass
+dt = dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
+print("Victory")
+dt.to_csv("d_2.csv")
 
-print(dt)
 
+heatmap_data = dt.unstack()
+
+# Сортировка по y для правильного отображения
+heatmap_data = heatmap_data.sort_index(ascending=True)
+
+# Построение heatmap с "нормальной" ориентацией осей
+plt.figure(figsize=(7, 6))
+ax = sns.heatmap(heatmap_data, annot=True, cmap="viridis", fmt=".1f", cbar_kws={'label': 'Mean ph'})
+
+# Инвертируем ось Y, чтобы (0,0) было внизу, а не вверху
+ax.invert_yaxis()
+
+# Подписи и отображение
+plt.xlabel("x")
+plt.ylabel("y")
+plt.tight_layout()
+plt.show()
