@@ -13,7 +13,7 @@ from packets import raw_packet_to_dict
 X = int(input())
 Y = int(input())
 step = float(input())
-time_to_collect = int(input())
+time_to_collect = int(input()) #in ms
 
 impulse_builder(
                 2,
@@ -21,12 +21,13 @@ impulse_builder(
                 [1, 1],
                 [0, 0],
                 [time_to_collect, time_to_collect],
-                time_to_collect,
+                150,
                 int(1E6),
-                int(1E6)
+                int(1E3)
             )
 
 dev = open_serial_port()
+move_to_position(dev, [0,0])
 #center = get_position(dev)
 
 center = [0,0]
@@ -41,22 +42,22 @@ packet_speed = 8000 #packets/s
 
 dt = pd.DataFrame(columns=["x", "y", "ph"])
 
-MAX_COUNT = int(packet_speed*time_to_collect)
-packet_count = 0  # Счётчик пакетов
+MAX_COUNT = int(packet_speed*time_to_collect*1E-3)
 
 def handle_packet(pwk, packet):
     global x_t, y_t, packet_count, dt
 
+    packet_count += 1
+
+    if packet_count >= MAX_COUNT:
+        raise KeyboardInterrupt()  # Прервать loop, когда достигли лимита
+
     rw = packet[42:]
     k = raw_packet_to_dict(rw)
 
-    packet_count += 1
-
     if k['flag_pos'] == 1:
-        dt.loc[len(dt)] = {"x": x_t, "y": y_t, "ph": k['count_pos']}
+        dt.loc[len(dt)] = {"x": round(x_t, 2), "y": round(y_t,2), "ph": k['count_pos']}
 
-        if packet_count >= MAX_COUNT:
-            raise KeyboardInterrupt() # Прервать loop, когда достигли лимита
 
 def flush_capture_buffer(capture, flush_time=0.1):
     """
@@ -78,32 +79,28 @@ def flush_capture_buffer(capture, flush_time=0.1):
 
 exit_loop_flag = False
 
-def wrapper_handle_packet(pwk, packet):
-    handle_packet(pwk, packet)
-
 for y_t in yi:
     for x_t in xi:
         move_to_position(dev, [x_t, y_t])
         # Задержка для перемещения
+        time.sleep(0.03)
         flush_capture_buffer(cap, 0.03)  # <<< очистка
         packet_count = 0
         try:
-            cap.loop(-1, wrapper_handle_packet)
+            cap.loop(-1, handle_packet)
         except KeyboardInterrupt:
             pass
+
 dt = dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
 print("Victory")
-dt.to_csv("d_2.csv")
+dt.to_csv("d_5.csv")
 
 
-heatmap_data = dt.unstack()
+heatmap_data = dt.pivot(index='y', columns='x', values='ph')
 
-# Сортировка по y для правильного отображения
-heatmap_data = heatmap_data.sort_index(ascending=True)
-
-# Построение heatmap с "нормальной" ориентацией осей
+# 3. Строим heatmap
 plt.figure(figsize=(7, 6))
-ax = sns.heatmap(heatmap_data, annot=True, cmap="viridis", fmt=".1f", cbar_kws={'label': 'Mean ph'})
+ax = sns.heatmap(heatmap_data, cmap="viridis", cbar_kws={'label': 'Mean ph'})
 
 # Инвертируем ось Y, чтобы (0,0) было внизу, а не вверху
 ax.invert_yaxis()
