@@ -43,10 +43,10 @@ gain = 10
 # Время накопления
 time_to_collect = 5 #ms
 # Количество усреднений
-n_avg = 10
+n_avg = 50
 
 # Название
-filename = "30_7_25_odmr"
+filename = "file"
 assert n_avg > 0
 
 rm = ResourceManager()
