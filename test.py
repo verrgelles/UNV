@@ -1,10 +1,14 @@
+import cProfile
 import time
+import random
 
 import numpy as np
 import pandas as pd
 import pcapy
 import seaborn as sns
 from matplotlib import pyplot as plt
+import timeit
+
 
 from hardware.mirrors import open_serial_port, get_position, move_to_position
 from hardware.spincore import impulse_builder
@@ -35,8 +39,10 @@ xi = np.arange(start=-X/2+center[0], stop=X/2+center[0]+step, step=step)
 yi = np.arange(start=Y/2+center[1], stop=-(Y/2+center[1]+step), step=-step)
 
 iface = "Ethernet"
+#to_ms=время накопления в точке
 cap = pcapy.open_live(iface, 106, 0, 0)
 cap.setfilter("udp and src host 192.168.1.2")
+
 
 packet_speed = 8000 #packets/s
 
@@ -79,21 +85,22 @@ def flush_capture_buffer(capture, flush_time=0.1):
 
 exit_loop_flag = False
 
+MAX_COUNT = int(packet_speed * time_to_collect * 1E-3)
+q = time.perf_counter_ns()
 for y_t in yi:
     for x_t in xi:
         move_to_position(dev, [x_t, y_t])
-        # Задержка для перемещения
         time.sleep(0.03)
-        flush_capture_buffer(cap, 0.03)  # <<< очистка
+        flush_capture_buffer(cap, 0.03)
         packet_count = 0
         try:
             cap.loop(-1, handle_packet)
         except KeyboardInterrupt:
             pass
-
+print((time.perf_counter_ns()-q)*1E-9, "s")
 dt = dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
 print("Victory")
-dt.to_csv("d_5.csv")
+dt.to_csv("23_7_1_MEAN3.csv") #sum515
 
 
 heatmap_data = dt.pivot(index='y', columns='x', values='ph')
