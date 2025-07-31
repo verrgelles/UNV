@@ -49,10 +49,19 @@ def raw_packet_to_dict_corr(payload: bytes):
         tp2_b = [np.round((tp2[i] >> 7) * 5, 1) for i in range(len(tp2))]  # ns
         tp2_r = [(tp2_a[i] + tp2_b[i]) for i in range(len(tp2_a))]  # ns
 
+        # Восстановление отдельных счётов
+        if package_id % 2 == 0:
+            cnt_photon_1 = 0
+            cnt_photon_2 = cnt_photon
+        else:
+            cnt_photon_1 = cnt_photon
+            cnt_photon_2 = 0
+
         result = {
             "package_id": package_id,
             "flag_valid": flag_valid,
-            "cnt_photon": cnt_photon,
+            "cnt_photon_1": cnt_photon_1,
+            "cnt_photon_2": cnt_photon_2,
             "tp1_r": np.array(list(set(tp1_r))),
             "tp2_r": np.array(list(set(tp2_r)))
         }
