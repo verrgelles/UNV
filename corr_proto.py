@@ -33,7 +33,7 @@ def handle_packet(pwk, packet):
 def packet_worker():
     while True:
         try:
-            rw = packet_queue.get(timeout=1)
+            rw = packet_queue.get(timeout=60)
             k = raw_packet_to_dict_corr(rw)
 
             if k['flag_valid'] == 1:
