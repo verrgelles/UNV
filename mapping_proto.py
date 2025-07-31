@@ -44,7 +44,7 @@ cap = pcapy.open_live(iface, 106, 0, 0)
 cap.setfilter("udp and src host 192.168.1.2")
 
 
-packet_speed = 8000 #packets/s
+packet_speed = 4000 #packets/s
 
 dt = pd.DataFrame(columns=["x", "y", "ph"])
 

@@ -2,7 +2,6 @@ import numpy as np
 import struct
 
 import pcapy
-from scapy.sendrecv import sniff
 
 from hardware.mirrors import open_serial_port, move_to_position
 from hardware.spincore import impulse_builder
@@ -70,14 +69,14 @@ ph = np.zeros(len(frequencies))
 
 ph_tmp = []
 c = 0
-deц = open_serial_port()
-move_to_position(deц, [3,2])
+det = open_serial_port()
+move_to_position(det, [3,2])
 
 iface = "Ethernet"
 cap = pcapy.open_live(iface, 106, 0, 0)
 cap.setfilter("udp and src host 192.168.1.2")
 
-packet_speed = 8000 #p/s
+packet_speed = 4000 #p/s
 
 MAX_COUNT = int(packet_speed*time_to_collect*1E-3)
 
