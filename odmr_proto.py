@@ -36,13 +36,15 @@ RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 # Настройка частоты и мощности dbm
 start = 2860 * 1E6
 stop = 2880 * 1E6
-step = 25 * 1E3
+step = 150 * 1E3
 # Мощность dbm
-gain = 10
+gain = 15
 # Время накопления
-time_to_collect = 5 #ms
+time_to_collect = round(int(input())/2) #in ms
+assert time_to_collect > 0
+print(time_to_collect)
 # Количество усреднений
-n_avg = 50
+n_avg = 25
 
 # Название
 filename = "file"
@@ -70,13 +72,14 @@ ph = np.zeros(len(frequencies))
 ph_tmp = []
 c = 0
 det = open_serial_port()
-move_to_position(det, [3,2])
+#FIXME тут ставим координаты
+move_to_position(det, [-1.6,-5.8])
 
 iface = "Ethernet"
 cap = pcapy.open_live(iface, 106, 0, 0)
 cap.setfilter("udp and src host 192.168.1.2")
-
-packet_speed = 4000 #p/s
+#FIXME packet speed
+packet_speed = 8000 #p/s
 
 MAX_COUNT = int(packet_speed*time_to_collect*1E-3)
 
@@ -94,6 +97,7 @@ def handle_packet(pwk, packet):
     if k['flag_valid'] == 1 and k['flag_pos'] == 1:
         ph_tmp.append(k['count_pos'])
 
+q = time.perf_counter_ns()
 for n in range(n_avg + 1):
     print(f"Усреднение {n}/{n_avg}")
     for freq in frequencies:
@@ -122,7 +126,7 @@ for n in range(n_avg + 1):
     c = 0
     if n == n_avg:
         ph = [ph[i] / n_avg for i in range(len(ph))]
-
+print("Time (s):", (time.perf_counter_ns()-q)*1E-9)
 dev.write(":OUTP 0")
 dev.close()
 plt.plot(frequencies[1:], ph[1:])

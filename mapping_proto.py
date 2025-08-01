@@ -17,7 +17,9 @@ from packets import raw_packet_to_dict
 X = int(input())
 Y = int(input())
 step = float(input())
-time_to_collect = int(input()) #in ms
+time_to_collect = round(int(input())/2) #in ms
+assert time_to_collect > 0
+print(time_to_collect)
 
 impulse_builder(
                 2,
@@ -43,8 +45,8 @@ iface = "Ethernet"
 cap = pcapy.open_live(iface, 106, 0, 0)
 cap.setfilter("udp and src host 192.168.1.2")
 
-
-packet_speed = 4000 #packets/s
+#FIXME тут меняется скорость
+packet_speed = 8000 #packets/s
 
 dt = pd.DataFrame(columns=["x", "y", "ph"])
 
@@ -85,7 +87,6 @@ def flush_capture_buffer(capture, flush_time=0.1):
 
 exit_loop_flag = False
 
-MAX_COUNT = int(packet_speed * time_to_collect * 1E-3)
 q = time.perf_counter_ns()
 for y_t in yi:
     for x_t in xi:
