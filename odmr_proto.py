@@ -34,17 +34,17 @@ def flush_capture_buffer(capture, flush_time=0.1):
 
 RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 # Настройка частоты и мощности dbm
-start = 2860 * 1E6
-stop = 2880 * 1E6
-step = 150 * 1E3
+start = 2840 * 1E6
+stop = 2900 * 1E6
+step = 200 * 1E3
 # Мощность dbm
-gain = 15
+gain = 10
 # Время накопления
 time_to_collect = round(int(input())/2) #in ms
 assert time_to_collect > 0
 print(time_to_collect)
 # Количество усреднений
-n_avg = 25
+n_avg = 200
 
 # Название
 filename = "file"
