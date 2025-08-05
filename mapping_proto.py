@@ -33,10 +33,11 @@ impulse_builder(
             )
 
 dev = open_serial_port()
-move_to_position(dev, [0,0])
+center = [1.7,1.3]
+move_to_position(dev, center)
 #center = get_position(dev)
 
-center = [0,0]
+
 xi = np.arange(start=-X/2+center[0], stop=X/2+center[0]+step, step=step)
 yi = np.arange(start=Y/2+center[1], stop=-(Y/2+center[1]+step), step=-step)
 
@@ -101,6 +102,7 @@ for y_t in yi:
 print((time.perf_counter_ns()-q)*1E-9, "s")
 dt = dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
 print("Victory")
+dev.close()
 dt.to_csv("23_7_1_MEAN3.csv") #sum515
 
 

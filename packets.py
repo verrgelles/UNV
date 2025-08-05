@@ -62,8 +62,8 @@ def raw_packet_to_dict_corr(payload: bytes):
             "flag_valid": flag_valid,
             "cnt_photon_1": cnt_photon_1,
             "cnt_photon_2": cnt_photon_2,
-            "tp1_r": np.array(list(set(tp1_r))),
-            "tp2_r": np.array(list(set(tp2_r)))
+            "tp1_r": tp1_r,
+            "tp2_r": tp2_r
         }
 
     return result

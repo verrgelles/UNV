@@ -7,6 +7,7 @@ from queue import Queue, Empty
 import pcapy
 import matplotlib.pyplot as plt
 
+from hardware.mirrors import open_serial_port
 from packets import raw_packet_to_dict_corr
 
 # === Настройки ===
@@ -19,7 +20,7 @@ MAX_PHOTON_HISTORY = 10000
 
 TAU_MAX_NS = 100
 BIN_WIDTH_NS = 0.1
-NUM_BINS = int(np.round(TAU_MAX_NS / BIN_WIDTH_NS))
+NUM_BINS = int(np.round(2 * TAU_MAX_NS / BIN_WIDTH_NS))
 BINS = np.linspace(-TAU_MAX_NS, TAU_MAX_NS, NUM_BINS + 1)
 
 packet_queue = Queue(maxsize=MAX_QUEUE_SIZE)
@@ -41,23 +42,16 @@ def handle_packet(hdr, packet):
 
     try:
         payload = packet[42:]
-        if len(payload) != 64:
-            #print("[✗] Неверный размер payload (не 64 байта)")
-            return
 
         if is_queue_almost_full(packet_queue):
-            #print(f"[⚠] Очередь почти заполнена: {packet_queue.qsize()} / {packet_queue.maxsize}")
-            pass
+            print(f"[⚠] Очередь почти заполнена: {packet_queue.qsize()} / {packet_queue.maxsize}")
 
         packet_queue.put_nowait(payload)
 
     except Exception as e:
-        #print(f"[✗] Ошибка обработки пакета: {e}")
-        pass
+        print(f"[✗] Ошибка обработки пакета: {e}")
 
 def packet_worker():
-    global photon_total_1, photon_total_2
-
     while True:
         try:
             payload = packet_queue.get(timeout=1)
@@ -65,10 +59,6 @@ def packet_worker():
 
             if result.get("flag_valid") == 1:
                 photon_data.append(result)
-                photon_total_1 += result["cnt_photon_1"]
-                photon_total_2 += result["cnt_photon_2"]
-
-
         except Empty:
             continue
         except Exception as e:
@@ -86,12 +76,18 @@ def correlation_worker():
             t1_all = [p["tp1_r"] for p in photon_data]
             t2_all = [p["tp2_r"] for p in photon_data]
 
+            photon_data.clear()
+
             deltas = np.concatenate([
                 np.subtract.outer(t1, t2).ravel()
                 for t1, t2 in zip(t1_all, t2_all)
             ])
 
             valid = deltas[(deltas > -TAU_MAX_NS) & (deltas < TAU_MAX_NS)]
+            valid = valid[valid != 0]
+
+            if len(valid) == 0:
+                raise Exception
 
             hist, _ = np.histogram(valid, bins=NUM_BINS, range=(-TAU_MAX_NS, TAU_MAX_NS))
 
@@ -111,33 +107,28 @@ def correlation_worker():
 def plot_worker():
     global photon_total_1, photon_total_2
 
-    SAVE_INTERVAL = 100  # секунд
+    SAVE_INTERVAL = 60  # секунд
 
     while True:
         time.sleep(SAVE_INTERVAL)
 
         try:
             if np.sum(hist_data) == 0:
-                #print("[ℹ] Гистограмма пуста — пропускаем сохранение")
-                continue
-
-            N1 = photon_total_1
-            N2 = photon_total_2
-            if N1 == 0 or N2 == 0:
-                #print("[!] Недостаточно фотонов для нормировки — пропуск")
+                print("[ℹ] Гистограмма пуста — пропускаем сохранение")
                 continue
 
             #norm_factor = N1 * N2 * BIN_WIDTH_NS
             norm_factor = BIN_WIDTH_NS
-            g2_norm = hist_data / norm_factor
+            g2_norm = hist_data
 
             timestamp = int(time.time())
             filename = f"g2_plot_{timestamp}.png"
 
             plt.figure(figsize=(10, 5))
-            plt.bar(BINS[:-1], g2_norm, width=BIN_WIDTH_NS, align='edge', edgecolor='black')
+            plt.bar(BINS[:-1], g2_norm, width=BIN_WIDTH_NS, align='center', edgecolor='blue', alpha=0.7)
             plt.title("g²(τ) нормированная корреляция")
             plt.xlabel("Задержка τ (нс)")
+            plt.xlim(-10, 10)
             plt.ylabel("g²(τ)")
             plt.grid(True)
             plt.tight_layout()
@@ -145,7 +136,7 @@ def plot_worker():
             print(filename)
             plt.close()
 
-            #print(f"[💾] Гистограмма сохранена: {filename}")
+            print(f"[💾] Гистограмма сохранена: {filename}")
 
         except Exception as e:
             pass
@@ -154,6 +145,9 @@ def plot_worker():
 
 def main():
     #print("[▶] Запуск потоков...")
+    det = open_serial_port()
+    # FIXME тут ставим координаты
+   # move_to_position(det, [-9, 1])
 
     for _ in range(WORKER_COUNT):
         Thread(target=packet_worker, daemon=True).start()
