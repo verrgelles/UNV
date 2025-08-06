@@ -33,14 +33,15 @@ impulse_builder(
             )
 
 dev = open_serial_port()
-center = [1.7,1.3]
+center = [6,-7]
 move_to_position(dev, center)
 #center = get_position(dev)
 
 
 xi = np.arange(start=-X/2+center[0], stop=X/2+center[0]+step, step=step)
-yi = np.arange(start=Y/2+center[1], stop=-(Y/2+center[1]+step), step=-step)
-
+yi = np.arange(start=Y/2+center[1], stop=-(Y/2-center[1]+step), step=-step) #FIXME перед center[1] поставил - вместо +
+#FIXME test
+print(yi)
 iface = "Ethernet"
 #to_ms=время накопления в точке
 cap = pcapy.open_live(iface, 106, 0, 0)
