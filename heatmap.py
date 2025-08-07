@@ -3,17 +3,18 @@ import threading
 import time
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import pcapy
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit,
-    QPushButton, QHBoxLayout, QTextEdit
+    QPushButton, QHBoxLayout, QFileDialog, QProgressBar, QTextEdit
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+
 from hardware.mirrors import open_serial_port, move_to_position
 from hardware.spincore import impulse_builder
 from packets import raw_packet_to_dict
@@ -21,8 +22,9 @@ from packets import raw_packet_to_dict
 
 class WorkerSignals(QObject):
     finished = pyqtSignal()
+    plot = pyqtSignal(pd.DataFrame)
+    progress = pyqtSignal(int)
     log = pyqtSignal(str)
-    plot = pyqtSignal(pd.DataFrame, object)
 
 
 class HeatmapCanvas(FigureCanvas):
@@ -34,14 +36,34 @@ class HeatmapCanvas(FigureCanvas):
         self.data = None
         self.cid = self.mpl_connect("button_press_event", self.on_click)
         self.device = None
+        self.selected_point_marker = None  # Маркер выбранной точки
+        self.annotation = None  # Подпись координат
+
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+        self.divider = make_axes_locatable(self.ax)
+        self.cax = self.divider.append_axes("right", size="5%", pad=0.1)
+        self.colorbar = None
 
     def plot(self, df):
         self.ax.clear()
+        self.cax.clear()
+        self.selected_point_marker = None  # Сбросить старый маркер
+        self.annotation = None  # Сбросить старую подпись
+
         heatmap_data = df.pivot(index='y', columns='x', values='ph')
-        sns.heatmap(heatmap_data, cmap="viridis", ax=self.ax, cbar_kws={'label': 'Mean ph'})
-        self.ax.invert_yaxis()
+        x_vals = heatmap_data.columns.values
+        y_vals = heatmap_data.index.values
+        X, Y = np.meshgrid(x_vals, y_vals)
+        Z = heatmap_data.values
+
+        mesh = self.ax.pcolormesh(X, Y, Z, cmap='viridis', shading='auto')
+        self.colorbar = self.fig.colorbar(mesh, cax=self.cax)
+        self.colorbar.set_label("Mean ph")
+
         self.ax.set_xlabel("x")
         self.ax.set_ylabel("y")
+        self.ax.set_aspect('equal', adjustable='box')
+
         self.draw()
         self.data = df
 
@@ -51,97 +73,122 @@ class HeatmapCanvas(FigureCanvas):
         if event.inaxes != self.ax:
             return
 
-        x_click = event.xdata
-        y_click = event.ydata
+        x_click, y_click = event.xdata, event.ydata
+        if x_click is None or y_click is None:
+            return
 
         df = self.data.copy()
-        df['dist'] = np.sqrt((df['x'] - x_click)**2 + (df['y'] - y_click)**2)
+        df['dist'] = np.abs(df['x'] - x_click) + np.abs(df['y'] - y_click)
         nearest = df.loc[df['dist'].idxmin()]
 
         x_target, y_target = nearest['x'], nearest['y']
-        move_to_position(self.device, [x_target, y_target])
-        print(f"Moved to: ({x_target}, {y_target})")
+
+        # Переместить устройство
+        drt = open_serial_port()
+        move_to_position(drt, [x_target, y_target])
+
+        # Удалить старый маркер
+        if self.selected_point_marker:
+            self.selected_point_marker.remove()
+            self.selected_point_marker = None
+
+        if self.annotation:
+            self.annotation.remove()
+            self.annotation = None
+
+        # Добавить новый маркер и подпись
+        self.selected_point_marker = self.ax.plot(
+            x_target, y_target, marker='o', color='red', markersize=8
+        )[0]
+        self.annotation = self.ax.annotate(
+            f"({x_target}, {y_target})",
+            xy=(x_target, y_target),
+            xytext=(5, 5),
+            textcoords="offset points",
+            color="white",
+            backgroundcolor="black",
+            fontsize=8
+        )
+
+        self.draw()
 
 
 class ScannerThread(threading.Thread):
-    def __init__(self, X, Y, step, time_to_collect, signals):
+    def __init__(self, X, Y, step, time_to_collect, device, signals):
         super().__init__()
         self.X = X
         self.Y = Y
         self.step = step
         self.time_to_collect = time_to_collect
+        self.device = device
         self.signals = signals
         self.dt = pd.DataFrame(columns=["x", "y", "ph"])
 
     def run(self):
         try:
+            self.signals.log.emit("Инициализация оборудования...")
             impulse_builder(
-                2,
-                [0, 2],
-                [1, 1],
-                [0, 0],
-                [self.time_to_collect, self.time_to_collect],
-                150,
-                int(1E6),
-                int(1E3)
+                2, [0, 2], [1, 1], [0, 0],
+                [self.time_to_collect]*2,
+                150, int(1e6), int(1e3)
             )
 
-            dev = open_serial_port()
-            center = [0,0]
-            move_to_position(dev, center)
+            move_to_position(self.device, [0, 0])
+            self.signals.log.emit("Начало сканирования...")
 
-            xi = np.arange(-self.X / 2 + center[0], self.X / 2 + center[0] + self.step, self.step)
-            yi = np.arange(self.Y / 2 + center[1], -(self.Y / 2 - center[1] + self.step), -self.step)
+            xi = np.arange(-self.X/2, self.X/2 + self.step, self.step)
+            yi = np.arange(self.Y/2, -(self.Y/2 + self.step), -self.step)
 
-            iface = "Ethernet"
-            cap = pcapy.open_live(iface, 106, 0, 0)
+            total_points = len(xi) * len(yi)
+            count = 0
+
+            cap = pcapy.open_live("Ethernet", 106, 0, 0)
             cap.setfilter("udp and src host 192.168.1.2")
-            packet_speed = 8000
-            max_count = int(packet_speed * self.time_to_collect * 1E-3)
+            max_count = int(8000 * self.time_to_collect * 1e-3)
 
-            def handle_packet(_hdr, packet):
+            def handle_packet(_, pkt):
                 nonlocal x_t, y_t, packet_count
                 packet_count += 1
                 if packet_count >= max_count:
                     raise KeyboardInterrupt()
-                rw = packet[42:]
-                k = raw_packet_to_dict(rw)
+                k = raw_packet_to_dict(pkt[42:])
                 if k['flag_pos'] == 1:
-                    self.dt.loc[len(self.dt)] = {"x": round(x_t, 2), "y": round(y_t, 2), "ph": k['count_pos']}
+                    self.dt.loc[len(self.dt)] = [round(x_t, 2), round(y_t, 2), k['count_pos']]
 
-            def flush_buffer(capture, flush_time=0.1):
-                start = time.time()
-                def _flush(_hdr, _data):
-                    pass
-                while True:
+            def flush(cap, ft=0.1):
+                t0 = time.time()
+                while time.time() - t0 < ft:
                     try:
-                        capture.dispatch(10, _flush)
+                        cap.dispatch(10, lambda *_: None)
                     except:
                         break
-                    if time.time() - start > flush_time:
-                        break
 
-            q = time.perf_counter_ns()
             for y_t in yi:
                 for x_t in xi:
-                    move_to_position(dev, [x_t, y_t])
+                    move_to_position(self.device, [x_t, y_t])
                     time.sleep(0.03)
-                    flush_buffer(cap, 0.03)
+                    flush(cap)
                     packet_count = 0
                     try:
                         cap.loop(-1, handle_packet)
                     except KeyboardInterrupt:
-                        continue
+                        pass
+                    count += 1
+                    self.signals.progress.emit(int(count / total_points * 100))
 
             self.dt = self.dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
-            self.dt.to_csv("scan_output.csv")
-
-            elapsed = (time.perf_counter_ns() - q) * 1E-9
-            self.signals.log.emit(f"Сканирование завершено за {elapsed:.2f} сек")
-            self.signals.plot.emit(self.dt, dev)
+            self.signals.plot.emit(self.dt)
+            self.signals.log.emit("Сканирование завершено.")
 
         except Exception as e:
-            self.signals.log.emit(f"Ошибка: {str(e)}")
+            self.signals.log.emit(f"Ошибка: {e}")
+        finally:
+            try:
+                self.device.close()
+                self.signals.log.emit("COM-порт зеркал закрыт.")
+            except Exception as e:
+                self.signals.log.emit(f"Ошибка при закрытии порта: {e}")
+
         self.signals.finished.emit()
 
 
@@ -153,63 +200,102 @@ class MainWindow(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout()
+        self.heatmap_canvas = HeatmapCanvas(self)
+        layout.addWidget(NavigationToolbar(self.heatmap_canvas, self))
+        layout.addWidget(self.heatmap_canvas)
 
         self.inputs = {}
         for label in ["X", "Y", "Шаг", "Время сбора (мс)"]:
             hbox = QHBoxLayout()
             hbox.addWidget(QLabel(label))
-            line_edit = QLineEdit()
-            hbox.addWidget(line_edit)
+            le = QLineEdit()
+            hbox.addWidget(le)
             layout.addLayout(hbox)
-            self.inputs[label] = line_edit
+            self.inputs[label] = le
 
-        self.start_btn = QPushButton("Запустить сканирование")
+        self.estimate = QLabel("Ожидаемое время: —")
+        layout.addWidget(self.estimate)
+
+        button_layout = QHBoxLayout()
+        self.start_btn = QPushButton("Сканировать")
         self.start_btn.clicked.connect(self.start_scan)
-        layout.addWidget(self.start_btn)
+        button_layout.addWidget(self.start_btn)
 
-        self.log_box = QTextEdit()
-        self.log_box.setReadOnly(True)
-        layout.addWidget(self.log_box)
+        self.save_btn = QPushButton("Сохранить")
+        self.save_btn.clicked.connect(self.save_heatmap)
+        button_layout.addWidget(self.save_btn)
 
-        self.heatmap_canvas = HeatmapCanvas(self)
-        layout.addWidget(self.heatmap_canvas)
+        self.load_btn = QPushButton("Загрузить")
+        self.load_btn.clicked.connect(self.load_heatmap)
+        button_layout.addWidget(self.load_btn)
+
+        layout.addLayout(button_layout)
+
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        layout.addWidget(self.log_output)
+
+        self.progress = QProgressBar()
+        layout.addWidget(self.progress)
 
         self.setLayout(layout)
 
-    def log(self, message):
-        self.log_box.append(message)
-
     def start_scan(self):
         try:
-            X = int(self.inputs["X"].text())
-            Y = int(self.inputs["Y"].text())
+            X = float(self.inputs["X"].text())
+            Y = float(self.inputs["Y"].text())
             step = float(self.inputs["Шаг"].text())
-            time_to_collect = round(int(self.inputs["Время сбора (мс)"].text()) / 2)
-
-            if time_to_collect <= 0:
+            t = round(int(self.inputs["Время сбора (мс)"].text()) / 2)
+            if t <= 0:
                 raise ValueError("Время должно быть больше нуля")
 
-            self.log(f"Параметры: X={X}, Y={Y}, шаг={step}, время={time_to_collect}мс")
+            self.device = open_serial_port()
+            self.heatmap_canvas.device = self.device
+            self.log_output.append("COM-порт зеркал открыт")
+
+            xi = np.arange(-X / 2, X / 2 + step, step)
+            yi = np.arange(Y / 2, -(Y / 2 + step), -step)
+            total = len(xi) * len(yi)
+            estimated = total * (0.03 + t / 1000)
+            self.estimate.setText(f"Ожидаемое время: ~{estimated:.1f} сек")
+
             self.start_btn.setEnabled(False)
+            self.progress.setValue(0)
 
             self.signals = WorkerSignals()
-            self.signals.log.connect(self.log)
-            self.signals.finished.connect(self.on_scan_finished)
+            self.signals.progress.connect(self.progress.setValue)
+            self.signals.log.connect(self.log_output.append)
             self.signals.plot.connect(self.display_plot)
+            self.signals.finished.connect(self.on_finished)
 
-            self.worker = ScannerThread(X, Y, step, time_to_collect, self.signals)
+            self.worker = ScannerThread(X, Y, step, t, self.device, self.signals)
             self.worker.start()
 
-        except Exception as e:
-            self.log(f"Ошибка ввода: {str(e)}")
+            self.log_output.append("Сканирование запущено.")
 
-    def display_plot(self, df, dev):
-        self.heatmap_canvas.device = dev
+        except Exception as e:
+            self.log_output.append(f"Ошибка запуска: {e}")
+
+    def on_finished(self):
+        self.start_btn.setEnabled(True)
+        self.estimate.setText("Ожидаемое время: —")
+
+    def display_plot(self, df):
         self.heatmap_canvas.plot(df)
 
-    def on_scan_finished(self):
-        self.log("Сканирование завершено.")
-        self.start_btn.setEnabled(True)
+    def save_heatmap(self):
+        if self.heatmap_canvas.data is not None:
+            path, _ = QFileDialog.getSaveFileName(self, "Сохранить CSV", "", "CSV Files (*.csv)")
+            if path:
+                self.heatmap_canvas.data.to_csv(path, index=False)
+                self.log_output.append(f"Сохранено: {path}")
+
+    def load_heatmap(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Загрузить CSV", "", "CSV Files (*.csv)")
+        if path:
+            df = pd.read_csv(path)
+            self.heatmap_canvas.plot(df)
+            self.log_output.append(f"Загружено: {path}")
 
 
 if __name__ == "__main__":
