@@ -22,7 +22,7 @@ from packets import raw_packet_to_dict
 
 class WorkerSignals(QObject):
     finished = pyqtSignal()
-    plot = pyqtSignal(pd.DataFrame)
+    plot = pyqtSignal(pd.DataFrame)     # Отправляем сгруппированный DataFrame
     progress = pyqtSignal(int)
     log = pyqtSignal(str)
 
@@ -36,27 +36,46 @@ class HeatmapCanvas(FigureCanvas):
         self.data = None
         self.cid = self.mpl_connect("button_press_event", self.on_click)
         self.device = None
-        self.selected_point_marker = None  # Маркер выбранной точки
-        self.annotation = None  # Подпись координат
+        self.selected_point_marker = None
+        self.annotation = None
 
         from mpl_toolkits.axes_grid1 import make_axes_locatable
         self.divider = make_axes_locatable(self.ax)
         self.cax = self.divider.append_axes("right", size="5%", pad=0.1)
         self.colorbar = None
 
-    def plot(self, df):
+        # УДАЛИ: self._clim = None
+        # self._clim больше не нужен — лимиты считаем каждый раз
+
+    def plot(self, df: pd.DataFrame):
         self.ax.clear()
         self.cax.clear()
-        self.selected_point_marker = None  # Сбросить старый маркер
-        self.annotation = None  # Сбросить старую подпись
+        self.selected_point_marker = None
+        self.annotation = None
 
-        heatmap_data = df.pivot(index='y', columns='x', values='ph')
-        x_vals = heatmap_data.columns.values
-        y_vals = heatmap_data.index.values
-        X, Y = np.meshgrid(x_vals, y_vals)
+        # Регулярная сетка
+        xs = np.sort(df['x'].unique())
+        ys = np.sort(df['y'].unique())
+        heatmap_data = df.pivot(index='y', columns='x', values='ph').reindex(index=ys, columns=xs)
         Z = heatmap_data.values
 
-        mesh = self.ax.pcolormesh(X, Y, Z, cmap='viridis', shading='auto')
+        # Лимиты для текущего кадра
+        finite_vals = Z[np.isfinite(Z)]
+        if finite_vals.size:
+            vmin = float(np.nanmin(finite_vals))
+            vmax = float(np.nanmax(finite_vals))
+            # Если все значения одинаковые — слегка «раздвинем» диапазон, чтобы colorbar не падал
+            if vmin == vmax:
+                eps = 1e-9 if vmin == 0 else abs(vmin) * 1e-6
+                vmin -= eps
+                vmax += eps
+        else:
+            vmin, vmax = 0.0, 1.0
+
+        X, Y = np.meshgrid(xs, ys)
+        mesh = self.ax.pcolormesh(X, Y, Z, cmap='viridis', shading='auto', vmin=vmin, vmax=vmax)
+
+        # Перестраиваем colorbar на каждый кадр
         self.colorbar = self.fig.colorbar(mesh, cax=self.cax)
         self.colorbar.set_label("Mean ph")
 
@@ -91,7 +110,6 @@ class HeatmapCanvas(FigureCanvas):
         if self.selected_point_marker:
             self.selected_point_marker.remove()
             self.selected_point_marker = None
-
         if self.annotation:
             self.annotation.remove()
             self.annotation = None
@@ -109,7 +127,6 @@ class HeatmapCanvas(FigureCanvas):
             backgroundcolor="black",
             fontsize=8
         )
-
         self.draw()
 
 
@@ -160,22 +177,37 @@ class ScannerThread(threading.Thread):
                 while time.time() - t0 < ft:
                     try:
                         cap.dispatch(10, lambda *_: None)
-                    except:
+                    except Exception:
                         break
 
+            # === Сканирование построчно ===
             for y_t in yi:
+                # можно сообщить о начале строки
+                self.signals.log.emit(f"Строка y={y_t:.3f}...")
                 for x_t in xi:
                     move_to_position(self.device, [x_t, y_t])
                     time.sleep(0.03)
                     flush(cap)
                     packet_count = 0
                     try:
-                        cap.loop(-1, handle_packet)
+                        cap.loop(-1, handle_packet)  # собираем точку
                     except KeyboardInterrupt:
                         pass
+
                     count += 1
                     self.signals.progress.emit(int(count / total_points * 100))
 
+                # ==== НОВОЕ: обновление карты ПОСЛЕ ЗАВЕРШЕНИЯ СТРОКИ ====
+                if not self.dt.empty:
+                    df_row = (
+                        self.dt.groupby(['x', 'y'], as_index=False)['ph']
+                        .mean()
+                        .sort_values(['y', 'x'])
+                    )
+                    self.signals.plot.emit(df_row)
+                    self.signals.log.emit(f"Строка y={y_t:.3f} готова, точек: {len(df_row[df_row['y']==y_t])}")
+
+            # финальный кадр
             self.dt = self.dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
             self.signals.plot.emit(self.dt)
             self.signals.log.emit("Сканирование завершено.")
@@ -271,7 +303,7 @@ class MainWindow(QWidget):
             self.worker = ScannerThread(X, Y, step, t, self.device, self.signals)
             self.worker.start()
 
-            self.log_output.append("Сканирование запущено.")
+            self.log_output.append("Сканирование запущено (обновление — построчно).")
 
         except Exception as e:
             self.log_output.append(f"Ошибка запуска: {e}")
