@@ -130,7 +130,7 @@ class HeatmapCanvas(FigureCanvas):
 
 class ScannerThread(threading.Thread):
     def __init__(self, X, Y, step, time_to_collect_ms_div2, device, signals,
-                 settle_s=0.03, flush_s=0.10):
+                 settle_s=0.03, flush_s=0.10, stop_event: threading.Event | None = None):
         """
         time_to_collect_ms_div2 — уже поделённое на 2 значение (как в GUI),
         чтобы поведение совпадало с текущей логикой.
@@ -145,6 +145,22 @@ class ScannerThread(threading.Thread):
         self.settle_s = float(settle_s)   # задержка после перемещения
         self.flush_s = float(flush_s)     # «промывка» буфера pcap
         self.dt = pd.DataFrame(columns=["x", "y", "ph"])
+        self.stop_event = stop_event or threading.Event()
+        self._stopped_by_user = False
+
+    def _should_stop(self) -> bool:
+        if self.stop_event.is_set():
+            self._stopped_by_user = True
+            return True
+        return False
+
+    def _sleep_interruptible(self, seconds: float, chunk: float = 0.01):
+        # Спим маленькими порциями, чтобы быстро реагировать на остановку
+        t_end = time.time() + seconds
+        while time.time() < t_end:
+            if self._should_stop():
+                break
+            time.sleep(min(chunk, t_end - time.time()))
 
     def run(self):
         try:
@@ -155,11 +171,11 @@ class ScannerThread(threading.Thread):
                 150, int(1e6), int(1e3)
             )
 
-            self.signals.log.emit("Начало сканирования...")
             center = get_position(self.device)
+            self.signals.log.emit("Начало сканирования...")
 
             xi = np.arange(-self.X/2 + center[0], self.X/2 + center[0] + self.step, self.step)
-            yi = np.arange(self.Y/2 + center[1], -(self.Y/2 -center[1] + self.step), -self.step)
+            yi = np.arange(self.Y/2 + center[1], -(self.Y/2 - center[1] + self.step), -self.step)
 
             total_points = len(xi) * len(yi)
             count = 0
@@ -167,10 +183,12 @@ class ScannerThread(threading.Thread):
             cap = pcapy.open_live("Ethernet", 106, 0, 0)
             cap.setfilter("udp and src host 192.168.1.2")
 
-            # Оценка по пакетам: max_count ~ 8000 * (time_to_collect_ms/1000)
             max_count = int(8000 * self.time_to_collect * 1e-3)
 
             def handle_packet(_, pkt):
+                # Позволяет мгновенно прервать cap.loop при стопе
+                if self._should_stop():
+                    raise KeyboardInterrupt()
                 nonlocal x_t, y_t, packet_count
                 packet_count += 1
                 if packet_count >= max_count:
@@ -183,6 +201,8 @@ class ScannerThread(threading.Thread):
                 ft = self.flush_s if ft is None else ft
                 t0 = time.time()
                 while time.time() - t0 < ft:
+                    if self._should_stop():
+                        break
                     try:
                         cap.dispatch(10, lambda *_: None)
                     except Exception:
@@ -191,17 +211,25 @@ class ScannerThread(threading.Thread):
             t_start = time.time()
 
             for y_t in yi:
+                if self._should_stop():
+                    break
                 self.signals.log.emit(f"Строка y={y_t:.3f}...")
                 for x_t in xi:
-                    move_to_position(self.device, [x_t, y_t])
-                    time.sleep(self.settle_s)
+                    if self._should_stop():
+                        break
 
-                    flush(cap)
+                    move_to_position(self.device, [x_t, y_t])
+                    self._sleep_interruptible(self.settle_s)
+
+                    flush(cap)  # очистка буфера перед сбором точки
+                    if self._should_stop():
+                        break
 
                     packet_count = 0
                     try:
-                        cap.loop(-1, handle_packet)
+                        cap.loop(-1, handle_packet)  # сбор текущей точки
                     except KeyboardInterrupt:
+                        # либо достигли max_count, либо поступил стоп
                         pass
 
                     count += 1
@@ -209,13 +237,17 @@ class ScannerThread(threading.Thread):
 
                     # === Динамическая ETA ===
                     elapsed = time.time() - t_start
-                    remaining = total_points - count
+                    remaining = max(0, total_points - count)
                     per_point_collect = self.time_to_collect / 1000.0
                     avg_per_point_obs = elapsed / max(1, count)
                     per_point_est = max(avg_per_point_obs, per_point_collect + self.settle_s + self.flush_s)
                     eta_s = remaining * per_point_est
                     self.signals.eta.emit(self._fmt_eta(eta_s))
 
+                if self._should_stop():
+                    break
+
+                # После каждой строки — обновление кадра
                 if not self.dt.empty:
                     df_row = (
                         self.dt.groupby(['x', 'y'], as_index=False)['ph']
@@ -226,9 +258,15 @@ class ScannerThread(threading.Thread):
                     n_in_row = len(df_row[df_row['y'] == y_t])
                     self.signals.log.emit(f"Строка y={y_t:.3f} готова, точек: {n_in_row}")
 
-            self.dt = self.dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
-            self.signals.plot.emit(self.dt)
-            self.signals.log.emit("Сканирование завершено.")
+            # Финальный кадр или частичные данные при остановке
+            if not self.dt.empty:
+                self.dt = self.dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
+                self.signals.plot.emit(self.dt)
+
+            if self._stopped_by_user:
+                self.signals.log.emit("Сканирование остановлено пользователем.")
+            else:
+                self.signals.log.emit("Сканирование завершено.")
 
         except Exception as e:
             self.signals.log.emit(f"Ошибка: {e}")
@@ -417,6 +455,11 @@ class MainWindow(QWidget):
         self.start_btn.clicked.connect(self.start_scan)
         button_layout.addWidget(self.start_btn)
 
+        self.stop_btn = QPushButton("Остановить")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.clicked.connect(self.stop_scan)
+        button_layout.addWidget(self.stop_btn)
+
         self.save_btn = QPushButton("Сохранить")
         self.save_btn.clicked.connect(self.save_heatmap)
         button_layout.addWidget(self.save_btn)
@@ -441,13 +484,14 @@ class MainWindow(QWidget):
         self.setLayout(layout)
 
         self.mirror_control_window = None
+        self.stop_event = None
+        self.worker = None
 
     def open_mirror_control(self):
         # Открываем как отдельное окно (без родителя)
         if self.mirror_control_window is None or not self.mirror_control_window.isVisible():
             self.mirror_control_window = MirrorControlWindow()  # без self
             self.mirror_control_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-            # когда окно уничтожится — забываем ссылку
             self.mirror_control_window.destroyed.connect(
                 lambda *_: setattr(self, "mirror_control_window", None)
             )
@@ -471,10 +515,8 @@ class MainWindow(QWidget):
             self.heatmap_canvas.device = self.device
             self.log_output.append("COM-порт зеркал открыт")
 
-            settle_s = 0.03
-            flush_s = 0.10
-
             self.start_btn.setEnabled(False)
+            self.stop_btn.setEnabled(True)
             self.progress.setValue(0)
             self.eta_label.setText("Осталось: —")
 
@@ -485,17 +527,30 @@ class MainWindow(QWidget):
             self.signals.finished.connect(self.on_finished)
             self.signals.eta.connect(self.eta_label.setText)
 
+            # новый флаг остановки
+            self.stop_event = threading.Event()
+
             self.worker = ScannerThread(X, Y, step, t, self.device, self.signals,
-                                        settle_s=settle_s, flush_s=flush_s)
+                                        settle_s=0.03, flush_s=0.10, stop_event=self.stop_event)
             self.worker.start()
 
             self.log_output.append("Сканирование запущено (обновление — построчно).")
 
         except Exception as e:
             self.log_output.append(f"Ошибка запуска: {e}")
+            self.start_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+
+    def stop_scan(self):
+        # Нажатие кнопки «Остановить»
+        if self.stop_event and not self.stop_event.is_set():
+            self.log_output.append("Остановка сканирования...")
+            self.stop_event.set()
+            self.stop_btn.setEnabled(False)  # чтобы не жали повторно
 
     def on_finished(self):
         self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
 
     def display_plot(self, df):
         self.heatmap_canvas.plot(df)
