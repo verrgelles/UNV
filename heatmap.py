@@ -7,7 +7,8 @@ import pcapy
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit,
-    QPushButton, QHBoxLayout, QFileDialog, QProgressBar, QTextEdit
+    QPushButton, QHBoxLayout, QFileDialog, QProgressBar, QTextEdit,
+    QGridLayout, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
 
@@ -15,7 +16,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from hardware.mirrors import open_serial_port, move_to_position
+from hardware.mirrors import open_serial_port, move_to_position, get_position
 from hardware.spincore import impulse_builder
 from packets import raw_packet_to_dict
 
@@ -148,18 +149,17 @@ class ScannerThread(threading.Thread):
     def run(self):
         try:
             self.signals.log.emit("Инициализация оборудования...")
-            # Вызов билда: список из двух одинаковых времён (как было)
             impulse_builder(
                 2, [0, 2], [1, 1], [0, 0],
                 [self.time_to_collect] * 2,
                 150, int(1e6), int(1e3)
             )
 
-            move_to_position(self.device, [0, 0])
             self.signals.log.emit("Начало сканирования...")
+            center = get_position(self.device)
 
-            xi = np.arange(-self.X/2, self.X/2 + self.step, self.step)
-            yi = np.arange(self.Y/2, -(self.Y/2 + self.step), -self.step)
+            xi = np.arange(-self.X/2 + center[0], self.X/2 + center[0] + self.step, self.step)
+            yi = np.arange(self.Y/2 + center[1], -(self.Y/2 -center[1] + self.step), -self.step)
 
             total_points = len(xi) * len(yi)
             count = 0
@@ -174,7 +174,6 @@ class ScannerThread(threading.Thread):
                 nonlocal x_t, y_t, packet_count
                 packet_count += 1
                 if packet_count >= max_count:
-                    # Выходим из cap.loop()
                     raise KeyboardInterrupt()
                 k = raw_packet_to_dict(pkt[42:])
                 if k['flag_pos'] == 1:
@@ -197,11 +196,11 @@ class ScannerThread(threading.Thread):
                     move_to_position(self.device, [x_t, y_t])
                     time.sleep(self.settle_s)
 
-                    flush(cap)  # очистка буфера перед сбором точки
+                    flush(cap)
 
                     packet_count = 0
                     try:
-                        cap.loop(-1, handle_packet)  # сбор текущей точки
+                        cap.loop(-1, handle_packet)
                     except KeyboardInterrupt:
                         pass
 
@@ -211,19 +210,12 @@ class ScannerThread(threading.Thread):
                     # === Динамическая ETA ===
                     elapsed = time.time() - t_start
                     remaining = total_points - count
-
-                    # Оценка длительности одной точки:
                     per_point_collect = self.time_to_collect / 1000.0
-                    # Среднее фактическое время на точку по уже пройденным:
                     avg_per_point_obs = elapsed / max(1, count)
-                    # Берём максимум между «конструктивной» оценкой и наблюдаемой,
-                    # чтобы не было слишком оптимистично
                     per_point_est = max(avg_per_point_obs, per_point_collect + self.settle_s + self.flush_s)
-
                     eta_s = remaining * per_point_est
                     self.signals.eta.emit(self._fmt_eta(eta_s))
 
-                # После каждой строки — обновление кадра
                 if not self.dt.empty:
                     df_row = (
                         self.dt.groupby(['x', 'y'], as_index=False)['ph']
@@ -234,7 +226,6 @@ class ScannerThread(threading.Thread):
                     n_in_row = len(df_row[df_row['y'] == y_t])
                     self.signals.log.emit(f"Строка y={y_t:.3f} готова, точек: {n_in_row}")
 
-            # Финальный кадр
             self.dt = self.dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
             self.signals.plot.emit(self.dt)
             self.signals.log.emit("Сканирование завершено.")
@@ -263,6 +254,138 @@ class ScannerThread(threading.Thread):
         return f"Осталось ~{s}с"
 
 
+class MirrorControlWindow(QWidget):
+    """
+    Окно ручного управления зеркалами:
+    - Шаг
+    - Кнопки: вверх/вниз/влево/вправо, В центр, Завершить
+    - Открывает и закрывает свой COM‑порт
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Управление зеркалами")
+        self.device = None
+        self._init_ui()
+
+        try:
+            self.device = open_serial_port()
+            self.status_label.setText("COM-порт: открыт")
+        except Exception as e:
+            self.status_label.setText(f"COM-порт: ошибка — {e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть COM-порт: {e}")
+
+        # Позиция с устройства (если доступно)
+        try:
+            pos = get_position(self.device)
+            self.x, self.y = float(pos[0]), float(pos[1])
+        except Exception:
+            self.x, self.y = 0.0, 0.0
+        self._update_coord_label()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Статус и координаты
+        self.status_label = QLabel("COM-порт: —")
+        self.coord_label = QLabel("Позиция: (0.00, 0.00)")
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.coord_label)
+
+        # Шаг перемещения
+        step_box = QHBoxLayout()
+        step_box.addWidget(QLabel("Шаг:"))
+        self.step_edit = QLineEdit("0.10")
+        self.step_edit.setMaximumWidth(100)
+        step_box.addWidget(self.step_edit)
+        layout.addLayout(step_box)
+
+        # Кнопки управления (grid)
+        grid = QGridLayout()
+        btn_up = QPushButton("↑")
+        btn_down = QPushButton("↓")
+        btn_left = QPushButton("←")
+        btn_right = QPushButton("→")
+        btn_center = QPushButton("В центр")
+        btn_close = QPushButton("Завершить")
+
+        btn_up.clicked.connect(self.move_up)
+        btn_down.clicked.connect(self.move_down)
+        btn_left.clicked.connect(self.move_left)
+        btn_right.clicked.connect(self.move_right)
+        btn_center.clicked.connect(self.move_center)
+        btn_close.clicked.connect(self.finish)
+
+        grid.addWidget(btn_up,    0, 1)
+        grid.addWidget(btn_left,  1, 0)
+        grid.addWidget(btn_center,1, 1)
+        grid.addWidget(btn_right, 1, 2)
+        grid.addWidget(btn_down,  2, 1)
+
+        layout.addLayout(grid)
+        layout.addSpacing(8)
+        layout.addWidget(btn_close)
+
+        self.setLayout(layout)
+        self.resize(300, 220)
+
+    def _get_step(self) -> float:
+        try:
+            s = float(self.step_edit.text())
+            if s <= 0:
+                raise ValueError
+            return s
+        except Exception:
+            QMessageBox.warning(self, "Шаг", "Некорректный шаг. Использую 0.10")
+            self.step_edit.setText("0.10")
+            return 0.10
+
+    def _apply_move(self):
+        if self.device is None:
+            QMessageBox.warning(self, "Порт закрыт", "COM-порт не открыт.")
+            return
+        try:
+            move_to_position(self.device, [self.x, self.y])
+            self._update_coord_label()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка перемещения", str(e))
+
+    def _update_coord_label(self):
+        self.coord_label.setText(f"Позиция: ({self.x:.2f}, {self.y:.2f})")
+
+    # Движения
+    def move_up(self):
+        self.y += self._get_step()
+        self._apply_move()
+
+    def move_down(self):
+        self.y -= self._get_step()
+        self._apply_move()
+
+    def move_left(self):
+        self.x -= self._get_step()
+        self._apply_move()
+
+    def move_right(self):
+        self.x += self._get_step()
+        self._apply_move()
+
+    def move_center(self):
+        self.x, self.y = 0.0, 0.0
+        self._apply_move()
+
+    def finish(self):
+        self.close()
+
+    def closeEvent(self, event):
+        try:
+            if self.device:
+                self.device.close()
+                self.device = None
+        except Exception:
+            pass
+        event.accept()
+
+
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -284,10 +407,11 @@ class MainWindow(QWidget):
             layout.addLayout(hbox)
             self.inputs[label] = le
 
-        # Убрали "Ожидаемое время"
-        self.eta_label = QLabel("Осталось: —")  # Только динамическая ETA
+        # Только динамическая ETA
+        self.eta_label = QLabel("Осталось: —")
         layout.addWidget(self.eta_label)
 
+        # Кнопки управления
         button_layout = QHBoxLayout()
         self.start_btn = QPushButton("Сканировать")
         self.start_btn.clicked.connect(self.start_scan)
@@ -301,6 +425,10 @@ class MainWindow(QWidget):
         self.load_btn.clicked.connect(self.load_heatmap)
         button_layout.addWidget(self.load_btn)
 
+        self.mirror_ctrl_btn = QPushButton("Управление зеркалами")
+        self.mirror_ctrl_btn.clicked.connect(self.open_mirror_control)
+        button_layout.addWidget(self.mirror_ctrl_btn)
+
         layout.addLayout(button_layout)
 
         self.log_output = QTextEdit()
@@ -311,6 +439,22 @@ class MainWindow(QWidget):
         layout.addWidget(self.progress)
 
         self.setLayout(layout)
+
+        self.mirror_control_window = None
+
+    def open_mirror_control(self):
+        # Открываем как отдельное окно (без родителя)
+        if self.mirror_control_window is None or not self.mirror_control_window.isVisible():
+            self.mirror_control_window = MirrorControlWindow()  # без self
+            self.mirror_control_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            # когда окно уничтожится — забываем ссылку
+            self.mirror_control_window.destroyed.connect(
+                lambda *_: setattr(self, "mirror_control_window", None)
+            )
+            self.mirror_control_window.show()
+        else:
+            self.mirror_control_window.activateWindow()
+            self.mirror_control_window.raise_()
 
     def start_scan(self):
         try:
@@ -327,12 +471,6 @@ class MainWindow(QWidget):
             self.heatmap_canvas.device = self.device
             self.log_output.append("COM-порт зеркал открыт")
 
-            xi = np.arange(-X / 2, X / 2 + step, step)
-            yi = np.arange(Y / 2, -(Y / 2 + step), -step)
-            # Нам не нужно статическое ожидание, поэтому total только для прогресса
-            total = len(xi) * len(yi)
-
-            # Константы на точку — нужны потоку и для реалистичной ETA
             settle_s = 0.03
             flush_s = 0.10
 
@@ -358,7 +496,6 @@ class MainWindow(QWidget):
 
     def on_finished(self):
         self.start_btn.setEnabled(True)
-        # ETA оставляем последней рассчитанной
 
     def display_plot(self, df):
         self.heatmap_canvas.plot(df)
@@ -381,6 +518,6 @@ class MainWindow(QWidget):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()
-    window.resize(800, 800)
+    window.resize(900, 820)
     window.show()
     sys.exit(app.exec())
