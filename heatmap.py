@@ -22,9 +22,10 @@ from packets import raw_packet_to_dict
 
 class WorkerSignals(QObject):
     finished = pyqtSignal()
-    plot = pyqtSignal(pd.DataFrame)     # Отправляем сгруппированный DataFrame
+    plot = pyqtSignal(pd.DataFrame)      # Отправляем сгруппированный DataFrame
     progress = pyqtSignal(int)
     log = pyqtSignal(str)
+    eta = pyqtSignal(str)                # Человекочитаемая ETA
 
 
 class HeatmapCanvas(FigureCanvas):
@@ -44,9 +45,6 @@ class HeatmapCanvas(FigureCanvas):
         self.cax = self.divider.append_axes("right", size="5%", pad=0.1)
         self.colorbar = None
 
-        # УДАЛИ: self._clim = None
-        # self._clim больше не нужен — лимиты считаем каждый раз
-
     def plot(self, df: pd.DataFrame):
         self.ax.clear()
         self.cax.clear()
@@ -64,7 +62,6 @@ class HeatmapCanvas(FigureCanvas):
         if finite_vals.size:
             vmin = float(np.nanmin(finite_vals))
             vmax = float(np.nanmax(finite_vals))
-            # Если все значения одинаковые — слегка «раздвинем» диапазон, чтобы colorbar не падал
             if vmin == vmax:
                 eps = 1e-9 if vmin == 0 else abs(vmin) * 1e-6
                 vmin -= eps
@@ -131,22 +128,30 @@ class HeatmapCanvas(FigureCanvas):
 
 
 class ScannerThread(threading.Thread):
-    def __init__(self, X, Y, step, time_to_collect, device, signals):
+    def __init__(self, X, Y, step, time_to_collect_ms_div2, device, signals,
+                 settle_s=0.03, flush_s=0.10):
+        """
+        time_to_collect_ms_div2 — уже поделённое на 2 значение (как в GUI),
+        чтобы поведение совпадало с текущей логикой.
+        """
         super().__init__()
         self.X = X
         self.Y = Y
         self.step = step
-        self.time_to_collect = time_to_collect
+        self.time_to_collect = int(time_to_collect_ms_div2)  # мс, уже /2
         self.device = device
         self.signals = signals
+        self.settle_s = float(settle_s)   # задержка после перемещения
+        self.flush_s = float(flush_s)     # «промывка» буфера pcap
         self.dt = pd.DataFrame(columns=["x", "y", "ph"])
 
     def run(self):
         try:
             self.signals.log.emit("Инициализация оборудования...")
+            # Вызов билда: список из двух одинаковых времён (как было)
             impulse_builder(
                 2, [0, 2], [1, 1], [0, 0],
-                [self.time_to_collect]*2,
+                [self.time_to_collect] * 2,
                 150, int(1e6), int(1e3)
             )
 
@@ -161,18 +166,22 @@ class ScannerThread(threading.Thread):
 
             cap = pcapy.open_live("Ethernet", 106, 0, 0)
             cap.setfilter("udp and src host 192.168.1.2")
+
+            # Оценка по пакетам: max_count ~ 8000 * (time_to_collect_ms/1000)
             max_count = int(8000 * self.time_to_collect * 1e-3)
 
             def handle_packet(_, pkt):
                 nonlocal x_t, y_t, packet_count
                 packet_count += 1
                 if packet_count >= max_count:
+                    # Выходим из cap.loop()
                     raise KeyboardInterrupt()
                 k = raw_packet_to_dict(pkt[42:])
                 if k['flag_pos'] == 1:
                     self.dt.loc[len(self.dt)] = [round(x_t, 2), round(y_t, 2), k['count_pos']]
 
-            def flush(cap, ft=0.1):
+            def flush(cap, ft=None):
+                ft = self.flush_s if ft is None else ft
                 t0 = time.time()
                 while time.time() - t0 < ft:
                     try:
@@ -180,24 +189,41 @@ class ScannerThread(threading.Thread):
                     except Exception:
                         break
 
-            # === Сканирование построчно ===
+            t_start = time.time()
+
             for y_t in yi:
-                # можно сообщить о начале строки
                 self.signals.log.emit(f"Строка y={y_t:.3f}...")
                 for x_t in xi:
                     move_to_position(self.device, [x_t, y_t])
-                    time.sleep(0.03)
-                    flush(cap)
+                    time.sleep(self.settle_s)
+
+                    flush(cap)  # очистка буфера перед сбором точки
+
                     packet_count = 0
                     try:
-                        cap.loop(-1, handle_packet)  # собираем точку
+                        cap.loop(-1, handle_packet)  # сбор текущей точки
                     except KeyboardInterrupt:
                         pass
 
                     count += 1
                     self.signals.progress.emit(int(count / total_points * 100))
 
-                # ==== НОВОЕ: обновление карты ПОСЛЕ ЗАВЕРШЕНИЯ СТРОКИ ====
+                    # === Динамическая ETA ===
+                    elapsed = time.time() - t_start
+                    remaining = total_points - count
+
+                    # Оценка длительности одной точки:
+                    per_point_collect = self.time_to_collect / 1000.0
+                    # Среднее фактическое время на точку по уже пройденным:
+                    avg_per_point_obs = elapsed / max(1, count)
+                    # Берём максимум между «конструктивной» оценкой и наблюдаемой,
+                    # чтобы не было слишком оптимистично
+                    per_point_est = max(avg_per_point_obs, per_point_collect + self.settle_s + self.flush_s)
+
+                    eta_s = remaining * per_point_est
+                    self.signals.eta.emit(self._fmt_eta(eta_s))
+
+                # После каждой строки — обновление кадра
                 if not self.dt.empty:
                     df_row = (
                         self.dt.groupby(['x', 'y'], as_index=False)['ph']
@@ -205,9 +231,10 @@ class ScannerThread(threading.Thread):
                         .sort_values(['y', 'x'])
                     )
                     self.signals.plot.emit(df_row)
-                    self.signals.log.emit(f"Строка y={y_t:.3f} готова, точек: {len(df_row[df_row['y']==y_t])}")
+                    n_in_row = len(df_row[df_row['y'] == y_t])
+                    self.signals.log.emit(f"Строка y={y_t:.3f} готова, точек: {n_in_row}")
 
-            # финальный кадр
+            # Финальный кадр
             self.dt = self.dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
             self.signals.plot.emit(self.dt)
             self.signals.log.emit("Сканирование завершено.")
@@ -222,6 +249,18 @@ class ScannerThread(threading.Thread):
                 self.signals.log.emit(f"Ошибка при закрытии порта: {e}")
 
         self.signals.finished.emit()
+
+    @staticmethod
+    def _fmt_eta(seconds: float) -> str:
+        seconds = max(0, int(round(seconds)))
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        if h:
+            return f"Осталось ~{h}ч {m:02d}м {s:02d}с"
+        if m:
+            return f"Осталось ~{m}м {s:02d}с"
+        return f"Осталось ~{s}с"
 
 
 class MainWindow(QWidget):
@@ -245,8 +284,9 @@ class MainWindow(QWidget):
             layout.addLayout(hbox)
             self.inputs[label] = le
 
-        self.estimate = QLabel("Ожидаемое время: —")
-        layout.addWidget(self.estimate)
+        # Убрали "Ожидаемое время"
+        self.eta_label = QLabel("Осталось: —")  # Только динамическая ETA
+        layout.addWidget(self.eta_label)
 
         button_layout = QHBoxLayout()
         self.start_btn = QPushButton("Сканировать")
@@ -277,6 +317,8 @@ class MainWindow(QWidget):
             X = float(self.inputs["X"].text())
             Y = float(self.inputs["Y"].text())
             step = float(self.inputs["Шаг"].text())
+
+            # Деление на 2 — сохраняем
             t = round(int(self.inputs["Время сбора (мс)"].text()) / 2)
             if t <= 0:
                 raise ValueError("Время должно быть больше нуля")
@@ -287,20 +329,26 @@ class MainWindow(QWidget):
 
             xi = np.arange(-X / 2, X / 2 + step, step)
             yi = np.arange(Y / 2, -(Y / 2 + step), -step)
+            # Нам не нужно статическое ожидание, поэтому total только для прогресса
             total = len(xi) * len(yi)
-            estimated = total * (0.03 + t / 1000)
-            self.estimate.setText(f"Ожидаемое время: ~{estimated:.1f} сек")
+
+            # Константы на точку — нужны потоку и для реалистичной ETA
+            settle_s = 0.03
+            flush_s = 0.10
 
             self.start_btn.setEnabled(False)
             self.progress.setValue(0)
+            self.eta_label.setText("Осталось: —")
 
             self.signals = WorkerSignals()
             self.signals.progress.connect(self.progress.setValue)
             self.signals.log.connect(self.log_output.append)
             self.signals.plot.connect(self.display_plot)
             self.signals.finished.connect(self.on_finished)
+            self.signals.eta.connect(self.eta_label.setText)
 
-            self.worker = ScannerThread(X, Y, step, t, self.device, self.signals)
+            self.worker = ScannerThread(X, Y, step, t, self.device, self.signals,
+                                        settle_s=settle_s, flush_s=flush_s)
             self.worker.start()
 
             self.log_output.append("Сканирование запущено (обновление — построчно).")
@@ -310,7 +358,7 @@ class MainWindow(QWidget):
 
     def on_finished(self):
         self.start_btn.setEnabled(True)
-        self.estimate.setText("Ожидаемое время: —")
+        # ETA оставляем последней рассчитанной
 
     def display_plot(self, df):
         self.heatmap_canvas.plot(df)
