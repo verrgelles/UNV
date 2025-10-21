@@ -163,7 +163,7 @@ class ScannerThread(threading.Thread):
         try:
             self.signals.log.emit("Инициализация оборудования...")
             impulse_builder(
-                2, [0, 2], [1, 1], [0, 0],
+                2, [0, 3], [1, 1], [0, 0],
                 [self.time_to_collect] * 2,
                 150, int(1e6), int(1e3)
             )
