@@ -6,13 +6,17 @@ import numpy as np
 import pandas as pd
 import pcapy
 import seaborn as sns
+from PIL.ImageOps import mirror
 from matplotlib import pyplot as plt
 import timeit
-
-
-from hardware.mirrors import open_serial_port, get_position, move_to_position
-from hardware.spincore import impulse_builder
+from hardware.mirrors import MirrorsDriver
+from hardware.spincore import SpincoreDriver
 from packets import raw_packet_to_dict
+
+
+'''что тут происходит?'''
+
+
 
 X = int(input())
 Y = int(input())
@@ -20,8 +24,8 @@ step = float(input())
 time_to_collect = round(int(input())/2) #in ms
 assert time_to_collect > 0
 print(time_to_collect)
-
-impulse_builder(
+spincore = SpincoreDriver()
+spincore.impulse_builder(
                 2,
                 [0, 2],
                 [1, 1],
@@ -31,10 +35,10 @@ impulse_builder(
                 int(1E6),
                 int(1E3)
             )
-
-dev = open_serial_port()
+mirrors = MirrorsDriver()
+mirrors.open_serial_port()
 center = [0,0]
-move_to_position(dev, center)
+mirrors.move_to_position(center)
 #center = get_position(dev)
 
 
@@ -91,7 +95,7 @@ exit_loop_flag = False
 q = time.perf_counter_ns()
 for y_t in yi:
     for x_t in xi:
-        move_to_position(dev, [x_t, y_t])
+        mirrors.move_to_position([x_t, y_t])
         time.sleep(0.03)
         flush_capture_buffer(cap, 0.03)
         packet_count = 0
@@ -102,7 +106,7 @@ for y_t in yi:
 print((time.perf_counter_ns()-q)*1E-9, "s")
 dt = dt.groupby(['x', 'y'], as_index=False)['ph'].mean()
 print("Victory")
-dev.close()
+#dev.close() тут ком порт по идее закроется сам, тк обнулится счётчк ссылок
 dt.to_csv("23_7_1_MEAN3.csv") #sum515
 
 

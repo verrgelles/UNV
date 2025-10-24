@@ -16,8 +16,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from hardware.mirrors import open_serial_port, move_to_position, get_position
-from hardware.spincore import impulse_builder
+from hardware.mirrors import  MirrorsDriver
+from hardware.spincore import SpincoreDriver
 from packets import raw_packet_to_dict
 
 
@@ -40,7 +40,7 @@ class HeatmapCanvas(FigureCanvas):
         self.vmax_base = None
         self.contrast_scale = 1.0
         self.cid = self.mpl_connect("button_press_event", self.on_click)
-        self.device = None
+        #self.device = None
         self.selected_point_marker = None
         self.annotation = None
 
@@ -48,6 +48,9 @@ class HeatmapCanvas(FigureCanvas):
         self.divider = make_axes_locatable(self.ax)
         self.cax = self.divider.append_axes("right", size="5%", pad=0.1)
         self.colorbar = None
+
+        self._mirrors_driver=MirrorsDriver()
+
 
     def plot(self, df: pd.DataFrame):
         self.ax.clear()
@@ -98,7 +101,8 @@ class HeatmapCanvas(FigureCanvas):
         self._draw_heatmap(xs, ys, Z)
 
     def on_click(self, event):
-        if self.device is None or self.data is None:
+        #if self.device is None or self.data is None:
+        if self.data is None:
             return
         if event.inaxes != self.ax:
             return
@@ -109,8 +113,8 @@ class HeatmapCanvas(FigureCanvas):
         df['dist'] = np.abs(df['x'] - x_click) + np.abs(df['y'] - y_click)
         nearest = df.loc[df['dist'].idxmin()]
         x_target, y_target = nearest['x'], nearest['y']
-        drt = open_serial_port()
-        move_to_position(drt, [x_target, y_target])
+        #self._mirrors_driver.open_serial_port()
+        self._mirrors_driver.move_to_position([x_target, y_target])
         if self.selected_point_marker:
             self.selected_point_marker.remove()
         if self.annotation:
@@ -131,21 +135,20 @@ class HeatmapCanvas(FigureCanvas):
 
 
 class ScannerThread(threading.Thread):
-    def __init__(self, X, Y, step, time_to_collect_ms_div2, device, signals,
-                 settle_s=0.03, flush_s=0.10, stop_event: threading.Event | None = None):
+    def __init__(self, X, Y, step, time_to_collect_ms_div2, mirrors_driver, signals,settle_s=0.03, flush_s=0.10, stop_event: threading.Event | None = None):
         super().__init__()
         self.X = X
         self.Y = Y
         self.step = step
         self.time_to_collect = int(time_to_collect_ms_div2)
-        self.device = device
+        self._mirrors_driver = mirrors_driver
         self.signals = signals
         self.settle_s = float(settle_s)
         self.flush_s = float(flush_s)
         self.dt = pd.DataFrame(columns=["x", "y", "ph"])
         self.stop_event = stop_event or threading.Event()
         self._stopped_by_user = False
-
+        self.spincore = SpincoreDriver()
     def _should_stop(self) -> bool:
         if self.stop_event.is_set():
             self._stopped_by_user = True
@@ -162,12 +165,12 @@ class ScannerThread(threading.Thread):
     def run(self):
         try:
             self.signals.log.emit("Инициализация оборудования...")
-            impulse_builder(
+            self.spincore.impulse_builder(
                 2, [0, 3], [1, 1], [0, 0],
                 [self.time_to_collect] * 2,
                 150, int(1e6), int(1e3)
             )
-            center = get_position(self.device)
+            center =  self._mirrors_driver.get_position()
             self.signals.log.emit("Начало сканирования...")
 
             xi = np.arange(-self.X/2 + center[0], self.X/2 + center[0] + self.step, self.step)
@@ -206,7 +209,7 @@ class ScannerThread(threading.Thread):
                 for x_t in xi:
                     if self._should_stop():
                         break
-                    move_to_position(self.device, [x_t, y_t])
+                    self._mirrors_driver.move_to_position([x_t, y_t])
                     self._sleep_interruptible(self.settle_s)
                     flush(cap)
                     if self._should_stop():
@@ -238,7 +241,7 @@ class ScannerThread(threading.Thread):
             self.signals.log.emit("Сканирование завершено." if not self._stopped_by_user else "Сканирование остановлено пользователем.")
         finally:
             try:
-                self.device.close()
+                #self.device.close()
                 self.signals.log.emit("COM-порт зеркал закрыт.")
             except Exception as e:
                 self.signals.log.emit(f"Ошибка при закрытии порта: {e}")
@@ -258,19 +261,19 @@ class ScannerThread(threading.Thread):
 
 
 class MirrorControlWindow(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self,mirrors_driver, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Управление зеркалами")
-        self.device = None
+        self._mirrors_driver=mirrors_driver
         self._init_ui()
         try:
-            self.device = open_serial_port()
+            self._mirrors_driver.open_serial_port()
             self.status_label.setText("COM-порт: открыт")
         except Exception as e:
             self.status_label.setText(f"COM-порт: ошибка — {e}")
             QMessageBox.critical(self, "Ошибка", f"Не удалось открыть COM-порт: {e}")
         try:
-            pos = get_position(self.device)
+            pos = self._mirrors_driver.get_position()
             self.x, self.y = float(pos[0]), float(pos[1])
         except Exception:
             self.x, self.y = 0.0, 0.0
@@ -322,7 +325,7 @@ class MirrorControlWindow(QWidget):
         if self.device is None:
             QMessageBox.warning(self, "Порт закрыт", "COM-порт не открыт.")
             return
-        move_to_position(self.device, [self.x, self.y])
+        self._mirrors_driver.move_to_position([self.x, self.y])
         self._update_coord_label()
 
     def _update_coord_label(self):
@@ -347,6 +350,7 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Сканер тепловой карты")
+        self._mirrors_driver=MirrorsDriver()
         self.init_ui()
 
     def init_ui(self):
@@ -392,7 +396,7 @@ class MainWindow(QWidget):
 
     def open_mirror_control(self):
         if self.mirror_control_window is None or not self.mirror_control_window.isVisible():
-            self.mirror_control_window = MirrorControlWindow()
+            self.mirror_control_window = MirrorControlWindow(self._mirrors_driver)
             self.mirror_control_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
             self.mirror_control_window.destroyed.connect(lambda *_: setattr(self, "mirror_control_window", None))
             self.mirror_control_window.show()
@@ -408,8 +412,8 @@ class MainWindow(QWidget):
             t = round(int(self.inputs["Время сбора (мс)"].text()) / 2)
             if t <= 0:
                 raise ValueError("Время должно быть больше нуля")
-            self.device = open_serial_port()
-            self.heatmap_canvas.device = self.device
+            self._mirrors_driver.open_serial_port()
+            #self.heatmap_canvas.device = self.device
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             self.progress.setValue(0)
@@ -421,7 +425,7 @@ class MainWindow(QWidget):
             self.signals.finished.connect(self.on_finished)
             self.signals.eta.connect(self.eta_label.setText)
             self.stop_event = threading.Event()
-            self.worker = ScannerThread(X, Y, step, t, self.device, self.signals,
+            self.worker = ScannerThread(X, Y, step, t, self._mirrors_driver, self.signals,
                                         settle_s=0.03, flush_s=0.10, stop_event=self.stop_event)
             self.worker.start()
             self.log_output.append("Сканирование запущено.")

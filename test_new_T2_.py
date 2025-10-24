@@ -3,14 +3,17 @@ import threading
 import queue
 
 import numpy as np
-import pcapy
+
 from matplotlib import pyplot as plt
 from pyvisa import ResourceManager
+import pcapy
+
 from scipy.special.cython_special import eval_sh_legendre
 
-from hardware.mirrors import open_serial_port, move_to_position
-from hardware.spincore import impulse_builder
+#from hardware.mirrors import open_serial_port, move_to_position
+from hardware.spincore import SpincoreDriver
 from packets import raw_packet_to_dict
+
 # --- Generate massives ---
 av_pulse = 15
 count_time = 5
@@ -65,8 +68,8 @@ dev.write(":OUTP 1")
 - 8 Gen
 """
 
-
-impulse_builder(
+spincore=SpincoreDriver()
+spincore.impulse_builder(
     3,
     [0, 3, 8],
     [av_pulse, 1, 1],
