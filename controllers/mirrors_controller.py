@@ -1,4 +1,5 @@
 from PyQt6.QtCore import QObject
+from PyQt6.QtWidgets import QMessageBox
 
 
 class MirrorsController(QObject):
@@ -49,4 +50,9 @@ class MirrorsController(QObject):
         self.model.move_to(self.model.center)
 
     def show_error(self, message: str):
-        print(f"[Mirror Error] {message}")  # Можно заменить на QMessageBox
+        #print(f"[Mirror Error] {message}")  # Можно заменить на QMessageBox
+        msgbox=QMessageBox()
+        msgbox.setIcon(QMessageBox.Icon.Critical)
+        msgbox.setWindowTitle("Ошибка")
+        msgbox.setText(message)
+        msgbox.exec()

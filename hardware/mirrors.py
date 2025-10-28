@@ -12,7 +12,8 @@ class MirrorsDriver:
         self.LENGTH_TO_VOLTAGE_Y = 1 / self.VOLTAGE_TO_LENGTH_Y
         self.device = None
     def __del__(self):
-        self.device.close()
+        if self.device:
+            self.device.close()
     def open_serial_port(self):
         """Открывает порт управления зеркалами."""
         try:

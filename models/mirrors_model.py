@@ -1,5 +1,5 @@
 from PyQt6.QtCore import QObject, pyqtSignal
-from hardware import mirrors
+from hardware.mirrors import MirrorsDriver
 from hardware.exceptions import SerialConnectionError
 
 
@@ -9,13 +9,13 @@ class MirrorsModel(QObject):
 
     def __init__(self):
         super().__init__()
-        self.device = None
+        self.mirrors = MirrorsDriver()
         self.center = [0.0, 0.0]  # Центр координат
 
     def connect(self):
         """Открывает порт управления зеркалами."""
         try:
-            self.device = mirrors.open_serial_port()
+            self.mirrors.open_serial_port()
         except SerialConnectionError as e:
             self._handle_error(str(e))
 
@@ -23,12 +23,13 @@ class MirrorsModel(QObject):
         """
         Перемещает зеркала в заданную позицию (в длинах, мкм).
         """
-        if not self.device:
+        if not self.mirrors:
             self._handle_error("Зеркала не подключены")
             return
 
         try:
-            mirrors.move_to_position(self.device, self.center, position)
+            #self.mirrors.move_to_position(self.center, position)
+            self.mirrors.move_to_position(position)
             self.positionChanged.emit(position)
         except Exception as e:
             self._handle_error(f"Ошибка перемещения: {e}")
@@ -37,12 +38,12 @@ class MirrorsModel(QObject):
         """
         Получает текущую позицию зеркал.
         """
-        if not self.device:
+        if not self.mirrors:
             self._handle_error("Зеркала не подключены")
             return None
 
         try:
-            pos = mirrors.get_position(self.device)
+            pos = self.mirrors.get_position()
             if pos:
                 self.positionChanged.emit(pos)
                 return pos
