@@ -72,7 +72,7 @@ def main():
     cap = pcapy.open_live(iface, 106, 0, 0)  # snaplen=106, promisc=0, timeout=0
     cap.setfilter("udp and src host 192.168.1.2")
 
-    frequencies = np.arange(start=start_freq, stop=(stop_freq + freq_step), step=freq_stepstep)
+    frequencies = np.arange(start=start_freq, stop=(stop_freq + freq_step), step=freq_step)
     print(len(frequencies))
 
     # --- Настройка генератора ---
