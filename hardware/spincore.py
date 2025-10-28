@@ -116,8 +116,8 @@ class SpincoreDriver:
 
     def impulse_builder_Cold(self, num_channels: int, channel_numbers: list[int], impulse_counts: list[int], start_times: list[int],stop_times: list[int], repeat_time, pulse_scale, rep_scale):
         # pulse_scale, rep_scale 1- нс, 1E3 мкс ...
-        self.setPb(self.StrBuild(create_string_buffer(
-            self. _config_builder(num_channels, channel_numbers, impulse_counts, start_times, stop_times).encode("utf-8"))),
+        self.setPb(
+             self.StrBuild(create_string_buffer(self. _config_builder(num_channels, channel_numbers, impulse_counts, start_times, stop_times).encode("utf-8"))),
             repeat_time,
             pulse_scale,
             rep_scale)
