@@ -17,6 +17,20 @@ def plotter(frequencies,ph):
     plt.title("Photon count vs Frequency")
     plt.grid(True)
     plt.show()
+# --- Очистка буфера ---
+def flush_capture_buffer(capture, flush_time=0.1):
+    start_time = time.time()
+
+    def _flush(_hdr, _data):
+        pass
+
+    while True:
+        try:
+            capture.dispatch(10, _flush)
+        except Exception:
+            break
+        if time.time() - start_time > flush_time:
+            break
 # 0 AOM
 # 1 Gen imp in
 # 2 FPGA
@@ -39,28 +53,29 @@ frequencies = np.arange(start=start_freq, stop=(stop_freq + freq_step), step=fre
 print(len(frequencies))
 print(5*1E3)
 # --- Настройка генератора ---
-#rigol=RigolDriver()
-#rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
+rigol=RigolDriver()
+spincore=SpincoreDriver()
+rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
 
-t_ch0= 5000 #5 us
+t_ch0= 10000 #10 us
 T_ch1 = 5000 #5 us
-t_ch2 = 1500 #1.5us
-ch2_delay = 500 #0.5us
+t_ch2 = 3000 #3us
+ch2_delay = 4000 #4us
 t_raise=250 #ns
 rigol_delay = 70 #ns
 t_ch3 = 100 #ns
-spincore=SpincoreDriver()
+#spincore.startPb()
 spincore.impulse_builder(
         num_channels=4,
         channel_numbers=[0, 1, 2, 3],# 0--AOM   1--Gen imp in  2--FPGA 3--Generator sweep
         impulse_counts=[2, 1, 2, 1],
-        start_times=[0, t_ch0+T_ch1, #CH0
+        start_times=[0, t_ch0+T_ch1-100, #CH0
                      t_ch0-rigol_delay,     #CH1
                      t_ch0+T_ch1, t_ch0+T_ch1+t_ch2+ch2_delay, #CH2
                      t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2],   #CH3
         stop_times=[t_ch0, t_ch0+T_ch1+t_ch0, #CH0
-                    t_ch0-rigol_delay+T_ch1, #CH1
-                    t_ch0+T_ch1,t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2, #CH2
+                    t_ch0+T_ch1, #CH1
+                    t_ch0+T_ch1+t_ch2,t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2, #CH2
                     t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2+t_ch3], #CH3
         repeat_time=30000000,       # повтор каждые 30 мс
         pulse_scale=1,           # 1 нс
@@ -68,20 +83,7 @@ spincore.impulse_builder(
     )
 
 
-# --- Очистка буфера ---
-def flush_capture_buffer(capture, flush_time=0.1):
-    start_time = time.time()
 
-    def _flush(_hdr, _data):
-        pass
-
-    while True:
-        try:
-            capture.dispatch(10, _flush)
-        except Exception:
-            break
-        if time.time() - start_time > flush_time:
-            break
 
 # --- Очередь для передачи данных ---
 packet_queue = queue.Queue(maxsize=100000)
@@ -110,6 +112,8 @@ for c in range(0, len(frequencies)):
 
     else:
         break
+#spincore.stopPb()
+#spincore.closePb()
 rigol.shutdown_rabi()
 rigol.dev.close()
 

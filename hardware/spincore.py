@@ -101,7 +101,7 @@ class SpincoreDriver:
 
             result.append(f'_{channel}_{num_impulses}')
             result.extend(f'_{time}' for time in channel_start_times + channel_stop_times)
-
+        print(''.join(result))
         return ''.join(result)
 
 
