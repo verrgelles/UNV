@@ -115,7 +115,7 @@ class RigolDriver:
 
         try:
             self.dev.write(f':SWE:RES')
-            self.dev.write(f':LEV {gain}dBm')
+            #self.dev.write(f':LEV {gain}dBm')
             self.dev.write(':SOUR1:FUNC:MODE SWE')
             self.dev.write(":SWE:MODE CONT")
             self.dev.write(":SWE:STEP:SHAP RAMP")

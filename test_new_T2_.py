@@ -61,7 +61,7 @@ def main():
     start_t = np.append(start_t, stop_t[-1])
     stop_t = np.append(stop_t, stop_t[-1]+5)
     print(start_t, stop_t)
-
+    print(start_t)
     # --- Настройки ---
     start_freq = 2860 * 1E6
     stop_freq = 2880 * 1E6

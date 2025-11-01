@@ -39,8 +39,8 @@ def flush_capture_buffer(capture, flush_time=0.1):
 
 
 # --- Настройки ---
-start_freq = 2860 * 1E6
-stop_freq = 2880 * 1E6
+start_freq = 2850 * 1E6
+stop_freq = 2890 * 1E6
 freq_step = 200 * 1E3
 gain = 10
 RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
@@ -55,7 +55,7 @@ print(len(frequencies))
 rigol=RigolDriver()
 spincore=SpincoreDriver()
 rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
-
+num_probegov = 50
 t_ch0= 500000 #500 us
 T_ch1 = 5000 #5 us
 t_ch2 = 3000 #3us
@@ -74,9 +74,9 @@ stop_times=[t_ch0, t_ch0+T_ch1+t_ch0, #CH0
     t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2+t_ch3], #CH3'''
 spincore.impulse_builder(
         num_channels=4,
-        channel_numbers=[4, 3, 1, 2],# 4--AOM   3--Gen imp in  1--FPGA 2--Generator sweep
+        channel_numbers=[4, 3, 0, 2],# 4--AOM   3--Gen imp in  1--FPGA T2   0--FPGA T1 2--Generator sweep
         impulse_counts=[2, 1, 1, 1],
-        start_times=[0,4000,
+        start_times=[0,4001,
                      1000,
                      4000,
                      5000],
@@ -85,9 +85,9 @@ spincore.impulse_builder(
                     5000,
                     5001],
 
-        repeat_time=30000000,       # повтор каждые 30 мс
+        repeat_time=30000,       # повтор каждые 30 мс
         pulse_scale=int(1e3),           # 1 us
-        rep_scale=1              # 1 нс
+        rep_scale=int(1e3)            # 1 us
     )
 
 
@@ -102,32 +102,25 @@ def packet_thread():
         global packet_queue
         rw = packet[42:]  # обрезаем заголовки
         k = raw_packet_to_dict(rw)
-        if k.get('flag_neg') == 1:
-            if k.get('package_id') % 2 == 0:
-                packet_queue.put_nowait(k['count_pos'])
-                print("put packet")
-            else:
-                print("no pack_id")
-        else:
-            print("no flag_pos")
+        if k.get('flag_pos') == 1:
+            #if k.get('package_id') % 2 == 0:
+            packet_queue.put_nowait(k['count_pos'])
+
+        
 
     cap.loop(-1, handle_packet)
 threading.Thread(target=packet_thread, daemon=True).start()
+ph = [0]*len(frequencies)
+for i in range(num_probegov):
+    while 1:
+        if packet_queue.qsize() >= len(frequencies):
+            break
+    for c in range(0, len(frequencies)):
+        ph[c]+=(packet_queue.get()/num_probegov)
 
-while 1:
-    if packet_queue.qsize() >= len(frequencies):
-        break
-
-ph = []
-for c in range(0, len(frequencies)):
-    if c <= len(frequencies):
-        ph.append(packet_queue.get())
-
-    else:
-        break
 #spincore.stopPb()
 #spincore.closePb()
-rigol.shutdown_rabi()
+rigol.shutdown_sweep()
 rigol.dev.close()
 
 plotter(frequencies,ph)
