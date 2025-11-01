@@ -43,8 +43,9 @@ def flush_capture_buffer(capture, flush_time=0.1):
             break
 # --- Generate massives ---
 def main():
-    av_pulse = 15
+    av_pulse = 1
     count_time = 5
+    num_probegov = 2
     # 10
     shift = 10
 
@@ -81,7 +82,7 @@ def main():
     spincore=SpincoreDriver()
     spincore.impulse_builder(
         3,
-        [0, 3, 8],
+        [4, 3, 2],
         [av_pulse, 1, 1],
         start_t.tolist(),
         stop_t.tolist(),
@@ -92,16 +93,16 @@ def main():
     # --- Очередь для передачи данных ---
     packet_queue = queue.Queue(maxsize=100000)
     threading.Thread(target=packet_thread, args=(packet_queue,cap,av_pulse), daemon=True).start()
-    while 1:
-        if packet_queue.qsize() >= len(frequencies):
-            break
+    ph = [0]*len(frequencies)
+    for i in range(num_probegov):
+        while 1:
+            if packet_queue.qsize() >= len(frequencies):
+                break
 
-    ph = []
-    for c in range(0, len(frequencies)):
-        #if c <= len(frequencies):
-        ph.append(packet_queue.get())
-        #else:
-            #break
+        ph = []
+        for c in range(0, len(frequencies)):
+            ph[c]+=(packet_queue.get()/num_probegov)
+
     #dev.write(":OUTP 0")
     rigol.shutdown_sweep()
     plotter(frequencies[2:], ph[2:])

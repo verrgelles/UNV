@@ -41,8 +41,8 @@ def flush_capture_buffer(capture, flush_time=0.1):
 # --- Настройки ---
 start_freq = 2860 * 1E6
 stop_freq = 2880 * 1E6
-freq_step = 50 * 1E3
-gain = 0
+freq_step = 200 * 1E3
+gain = 10
 RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
 iface = "Ethernet"
@@ -51,13 +51,12 @@ cap.setfilter("udp and src host 192.168.1.2")
 
 frequencies = np.arange(start=start_freq, stop=(stop_freq + freq_step), step=freq_step)
 print(len(frequencies))
-print(5*1E3)
 # --- Настройка генератора ---
 rigol=RigolDriver()
 spincore=SpincoreDriver()
 rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
 
-t_ch0= 10000 #10 us
+t_ch0= 500000 #500 us
 T_ch1 = 5000 #5 us
 t_ch2 = 3000 #3us
 ch2_delay = 4000 #4us
@@ -65,20 +64,29 @@ t_raise=250 #ns
 rigol_delay = 70 #ns
 t_ch3 = 100 #ns
 #spincore.startPb()
+'''start_times=[0, t_ch0+T_ch1-100, #CH0
+     t_ch0-rigol_delay,     #CH1
+     t_ch0+T_ch1, t_ch0+T_ch1+t_ch2+ch2_delay, #CH2
+     t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2],   #CH3
+stop_times=[t_ch0, t_ch0+T_ch1+t_ch0, #CH0
+    t_ch0+T_ch1, #CH1
+    t_ch0+T_ch1+t_ch2,t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2, #CH2
+    t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2+t_ch3], #CH3'''
 spincore.impulse_builder(
         num_channels=4,
-        channel_numbers=[0, 1, 2, 3],# 0--AOM   1--Gen imp in  2--FPGA 3--Generator sweep
-        impulse_counts=[2, 1, 2, 1],
-        start_times=[0, t_ch0+T_ch1-100, #CH0
-                     t_ch0-rigol_delay,     #CH1
-                     t_ch0+T_ch1, t_ch0+T_ch1+t_ch2+ch2_delay, #CH2
-                     t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2],   #CH3
-        stop_times=[t_ch0, t_ch0+T_ch1+t_ch0, #CH0
-                    t_ch0+T_ch1, #CH1
-                    t_ch0+T_ch1+t_ch2,t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2, #CH2
-                    t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2+t_ch3], #CH3
+        channel_numbers=[4, 3, 1, 2],# 4--AOM   3--Gen imp in  1--FPGA 2--Generator sweep
+        impulse_counts=[2, 1, 1, 1],
+        start_times=[0,4000,
+                     1000,
+                     4000,
+                     5000],
+        stop_times=[1000,5000,
+                    4000,
+                    5000,
+                    5001],
+
         repeat_time=30000000,       # повтор каждые 30 мс
-        pulse_scale=1,           # 1 нс
+        pulse_scale=int(1e3),           # 1 us
         rep_scale=1              # 1 нс
     )
 
@@ -94,9 +102,14 @@ def packet_thread():
         global packet_queue
         rw = packet[42:]  # обрезаем заголовки
         k = raw_packet_to_dict(rw)
-        if k.get('flag_pos') == 1:
+        if k.get('flag_neg') == 1:
             if k.get('package_id') % 2 == 0:
                 packet_queue.put_nowait(k['count_pos'])
+                print("put packet")
+            else:
+                print("no pack_id")
+        else:
+            print("no flag_pos")
 
     cap.loop(-1, handle_packet)
 threading.Thread(target=packet_thread, daemon=True).start()
