@@ -12,8 +12,10 @@ from hardware.mirrors import open_serial_port, move_to_position
 from hardware.spincore import impulse_builder
 from packets import raw_packet_to_dict
 # --- Generate massives ---
+
 av_pulse = 15 ##сколько измерений на конкретной частоте!!!
 count_time = 5 #время измерения на одной частоте мс
+
 # 10
 shift = 10
 
@@ -31,10 +33,12 @@ stop_t = np.append(stop_t, stop_t[-1]+5)
 print(start_t, stop_t)
 
 # --- Настройки ---
+
 start = 2850 * 1E6
 stop = 2890 * 1E6
 step = 50 * 1E3
 gain = 10
+
 RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
 iface = "Ethernet"
