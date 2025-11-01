@@ -24,7 +24,7 @@ def packet_thread(packet_queue, cap,av_pulse):
         k = raw_packet_to_dict(rw)
         if k.get('flag_neg') == 1:
             packet_queue.put_nowait(k['count_neg'] / av_pulse)
-            # print(k['count_neg'])
+            #print('got')
 
     cap.loop(-1, handle_packet)
 # --- Очистка буфера ---
@@ -44,8 +44,8 @@ def flush_capture_buffer(capture, flush_time=0.1):
 # --- Generate massives ---
 def main():
     av_pulse = 1
-    count_time = 5
-    num_probegov = 2
+    count_time = 1
+    num_probegov = 100
     # 10
     shift = 10
 
@@ -66,7 +66,7 @@ def main():
     start_freq = 2860 * 1E6
     stop_freq = 2880 * 1E6
     freq_step = 50 * 1E3
-    gain = 0
+    gain = 10
     #RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
     iface = "Ethernet"
@@ -82,7 +82,7 @@ def main():
     spincore=SpincoreDriver()
     spincore.impulse_builder(
         3,
-        [4, 3, 2],
+        [0, 1, 2],
         [av_pulse, 1, 1],
         start_t.tolist(),
         stop_t.tolist(),
@@ -98,8 +98,6 @@ def main():
         while 1:
             if packet_queue.qsize() >= len(frequencies):
                 break
-
-        ph = []
         for c in range(0, len(frequencies)):
             ph[c]+=(packet_queue.get()/num_probegov)
 
