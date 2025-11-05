@@ -51,7 +51,6 @@ class RigolDriver:
     def set_freq(self, gain: int, freq: float):
         self._check_gain_range(gain)
         self._check_freq_range(freq)
-
         try:
             self.dev.write(f':LEV {gain}dBm')
             self.dev.write(f':FREQ {freq}')

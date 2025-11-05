@@ -5,18 +5,18 @@ import numpy as np
 from matplotlib import pyplot as plt
 import pcapy
 from pcapy import findalldevs
-
+import pyqtgraph as pg
 from hardware.spincore import SpincoreDriver
 from hardware.rigol_rw import RigolDriver
 from packets import raw_packet_to_dict
 
-def plotter(frequencies,ph):
-    plt.plot(frequencies[2:], ph[2:])
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Photon count")
-    plt.title("Photon count vs Frequency")
-    plt.grid(True)
-    plt.show()
+def plotter(frequencies,ph,plotwidget):
+    plotwidget.plot(frequencies[2:], ph[2:])
+    plotwidget.setLabel('bottom', 'Frequency (Hz)', color='green', size='12pt')
+    plotwidget.setLabel('left', 'Photon count', color='red', size='12pt')
+    #plotwidget.title("Photon count vs Frequency")
+    #plotwidget.grid(True)
+    #plt.show()
 
 # --- Поток обработки пакетов ---
 def packet_thread(packet_queue, cap,av_pulse):
@@ -44,7 +44,7 @@ def flush_capture_buffer(capture, flush_time=0.1):
         if time.time() - start_time > flush_time:
             break
 # --- Generate massives ---
-def do_cv_odmr():
+def do_cv_odmr(start_frequency,stop_frequency,frequency_step,rigol_gain, plotwidget):
     av_pulse = 15
     count_time = 5
     # 10
@@ -64,10 +64,10 @@ def do_cv_odmr():
     print(start_t, stop_t)
 
     # --- Настройки ---
-    start_freq = 2860 * 1E6
-    stop_freq = 2880 * 1E6
-    freq_step = 50 * 1E3
-    gain = 0
+    start_freq = start_frequency#2860 * 1E6
+    stop_freq = stop_frequency #2880 * 1E6
+    freq_step = frequency_step
+    gain = rigol_gain
     #RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
     iface = "Ethernet"
@@ -130,7 +130,7 @@ def do_cv_odmr():
 
     #dev.write(":OUTP 0")
     #rigol.shutdown_sweep()
-    plotter(frequencies[2:], ph[2:])
+    plotter(frequencies[2:], ph[2:],plotwidget)
 
-if __name__ == "__main__":
-    do_cv_odmr()
+#if __name__ == "__main__":
+    #do_cv_odmr()

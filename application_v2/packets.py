@@ -6,7 +6,7 @@ cnt_photon_1=0
 cnt_photon_2=0
 def raw_packet_to_dict(payload: bytes):
     if len(payload) != 64:
-        raise ValueError(f"Payload must be 64 bytes, but it is {len(payload)} bytes")
+        raise ValueError('Payload must be 64 bytes')
     else:
         package_id = struct.unpack('<H', payload[1:3])[0]
 
