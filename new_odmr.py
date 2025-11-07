@@ -79,20 +79,21 @@ stop_times=[t_ch0, t_ch0+T_ch1+t_ch0, #CH0
     t_ch0+T_ch1+t_ch2+ch2_delay+t_ch2+t_ch3], #CH3'''
 shift = 33000
 # 4--AOM   3--Gen imp in  1--FPGA T2   0--FPGA T1 2--Generator sweep
+#WORKING CONFIGURATION
 spincore.impulse_builder(
     num_channels=4,
     channel_numbers=[0, 3, 4, 2],
     impulse_counts=[3, 1,2,1],
     start_times=[
-        0,      10200, 40400,
+        0,10200, 40400,
         10200,
         0, 40400,
-        80400
+        80401
     ],
     stop_times=[
         40200, 40200, 80400,
         40200,
-        10000, 50400,
+        10199, 50400,
         80500
     ],
     repeat_time=30000000,  # 30 мс
