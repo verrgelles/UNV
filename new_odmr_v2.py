@@ -1,4 +1,6 @@
-from hardware.spincore import SpincoreDriver
+#from hardware.spincore import SpincoreDriver
+import spincore_driver.spinapi
+from spincore_driver.builder import build_impulses_for_imp_odmr
 from hardware.rigol_rw import RigolDriver
 import time
 import threading
@@ -55,10 +57,12 @@ cap = pcapy.open_live(iface, 106, 0, 0)  # snaplen=106, promisc=0, timeout=0
 cap.setfilter("udp and src host 192.168.1.2")
 
 frequencies = np.arange(start=start_freq, stop=(stop_freq + freq_step), step=freq_step)
-print(len(frequencies))
+#print(len(frequencies))
 # --- Настройка генератора ---
-# rigol=RigolDriver()
-spincore = SpincoreDriver()
+#rigol=RigolDriver()
+#rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
+
+build_impulses_for_imp_odmr(t_laser=100,t_dark=5,t_SVCh=100,t_sbor=5,t_norm=5)
 #---------------------Блок настроек-----------------------#
 #---------------Все времена в микросекуднах---------------#
 num_probegov = 50
@@ -67,34 +71,7 @@ t_dark=5
 t_SVCh = 100
 t_sbor= 5
 t_norm = 5
-###########################################################
-# 4--AOM   3--Gen imp in  1--FPGA T2   0--FPGA T1 2--Generator sweep
-laser1_begin=0
-laser1_end = t_laser
-laser2_begin = t_laser+t_dark+t_SVCh
-laser2_end = laser2_begin+t_laser
-laser3_begin = t_laser+t_dark+t_SVCh+t_laser+t_dark
-laser3_end = laser3_begin+t_laser
 
-SVCh_begin=t_laser+t_dark
-SVCh_end=SVCh_begin+t_SVCh
-
-FPGA1_begin =t_laser+t_dark+t_SVCh
-FPGA1_end = FPGA1_begin + t_sbor
-spincore.impulse_builder(
-    num_channels=3,
-    channel_numbers=[4,3,0],#2],
-    impulse_counts=[3,1,1],# 1,2,1],
-    start_times=[laser1_begin,laser2_begin,laser3_begin,
-                 SVCh_begin,
-                 FPGA1_begin],
-    stop_times=[laser1_end,laser2_end,laser3_end,
-                SVCh_end,
-                FPGA1_end],
-    repeat_time=30000,  # 30 мс
-    pulse_scale=int(1e3),         # 1 us
-    rep_scale=int(1e3)            # 1 us
-)
 # --- Очередь для передачи данных ---
 packet_queue_meas = queue.Queue(maxsize=100000)
 packet_queue_norm = queue.Queue(maxsize=100000)
