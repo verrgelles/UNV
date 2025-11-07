@@ -22,9 +22,8 @@ def packet_thread(packet_queue, cap,av_pulse):
         # global packet_queue
         rw = packet[42:]  # обрезаем заголовки(ETH hdr IP hdr UDP hdr)
         k = raw_packet_to_dict(rw)
-        if k.get('flag_neg') == 1:
-            packet_queue.put_nowait(k['count_neg'] / av_pulse)
-            #print('got')
+        if k.get('flag_pos') == 1:
+            packet_queue.put_nowait(k['count_pos'] / av_pulse)
 
     cap.loop(-1, handle_packet)
 # --- Очистка буфера ---
@@ -45,7 +44,7 @@ def flush_capture_buffer(capture, flush_time=0.1):
 def main():
     av_pulse = 1
     count_time = 1
-    num_probegov = 100
+    num_probegov = 30
     # 10
     shift = 10
 
@@ -60,12 +59,10 @@ def main():
     #Gen
     start_t = np.append(start_t, stop_t[-1])
     stop_t = np.append(stop_t, stop_t[-1]+5)
-    print(start_t, stop_t)
-    print(start_t)
     # --- Настройки ---
-    start_freq = 2860 * 1E6
-    stop_freq = 2880 * 1E6
-    freq_step = 50 * 1E3
+    start_freq = 2850 * 1E6
+    stop_freq = 2890 * 1E6
+    freq_step = 200 * 1E3
     gain = 10
     #RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
@@ -80,12 +77,18 @@ def main():
     rigol=RigolDriver()
     rigol.setup_sweep(gain,start_freq,stop_freq,freq_step)
     spincore=SpincoreDriver()
+
+    start_t=start_t.tolist()
+    start_t.append(0)
+    stop_t = stop_t.tolist()
+    stop_t.append(14)
+    print(start_t,stop_t)
     spincore.impulse_builder(
-        3,
-        [0, 1, 2],
-        [av_pulse, 1, 1],
-        start_t.tolist(),
-        stop_t.tolist(),
+        4,
+        [0, 1, 2,4],
+        [av_pulse, 1, 1,1],
+        start_t,
+        stop_t,
         5000,
         int(1E6),
         int(1E3)
@@ -97,6 +100,7 @@ def main():
     for i in range(num_probegov):
         while 1:
             if packet_queue.qsize() >= len(frequencies):
+                print(i)
                 break
         for c in range(0, len(frequencies)):
             ph[c]+=(packet_queue.get()/num_probegov)
