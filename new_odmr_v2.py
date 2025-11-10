@@ -41,7 +41,7 @@ def flush_capture_buffer(capture, flush_time=0.1):
 # --- Настройки ---
 start_freq = 2775 * 1E6
 stop_freq = 2800 * 1E6
-freq_step = 200 * 1E3
+freq_step = 500 * 1E3
 gain = 10
 RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
@@ -55,10 +55,10 @@ frequencies = np.arange(start=start_freq, stop=(stop_freq + freq_step), step=fre
 rigol=RigolDriver()
 rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
 
-build_impulses_for_imp_odmr(t_laser=100,t_dark=5,t_SVCh=0.1,t_sbor=5,t_norm=5)
+build_impulses_for_imp_odmr(t_laser=100,t_dark=5,t_SVCh=1,t_sbor=5,t_norm=5)
 #---------------------Блок настроек-----------------------#
 
-num_probegov = 15
+num_probegov = 100
 
 # --- Очередь для передачи данных ---
 packet_queue_meas = queue.Queue(maxsize=100000)
@@ -90,7 +90,7 @@ for i in range(num_probegov):
     for c in range(0, len(frequencies)):
         sbor=packet_queue_meas.get()
         norm=packet_queue_norm.get()
-        ph[c] += 2*((norm-sbor)/(norm+sbor))
+        ph[c] += 2*((abs(norm-sbor))/(norm+sbor))
 
 # spincore.stopPb()
 # spincore.closePb()

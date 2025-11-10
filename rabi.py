@@ -55,11 +55,11 @@ cap.setfilter("udp and src host 192.168.1.2")
 
 # --- Настройка генератора ---
 rigol=RigolDriver()
-num_probegov = 10
+num_probegov = 3
 rigol.setup_rabi(gain = 10,freq=2890 * 1E6)
 begin =0.1
 end = 3
-times = [begin+i*(end-begin)/400 for i in range(400)]
+times = [begin+i*(end-begin)/500 for i in range(500)]
 print(times)
 build_impulses_rabi(t_laser = 1000, t_dark=5, t_sbor= 100, t_norm = 100,begin = 0.1, end = 3)
 # --- Очередь для передачи данных ---

@@ -43,8 +43,8 @@ def flush_capture_buffer(capture, flush_time=0.1):
 # --- Generate massives ---
 def main():
     av_pulse = 1
-    count_time = 1
-    num_probegov = 100
+    count_time = 10
+    num_probegov = 50
     # 10
     shift = 10
 

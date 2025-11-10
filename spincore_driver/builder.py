@@ -56,14 +56,12 @@ def spincore_init():
 def build_impulses_for_imp_odmr(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 5, t_norm = 5):
     spincore_init()
     pb.pb_start_programming(pb.PULSE_PROGRAM)
-    start = pb.pb_inst_pbonly(pb.ON|CH4, pb.CONTINUE,0,t_laser*pb.us)#Первый лазерный импульс длиной t_laser
-    pb.pb_inst_pbonly(0, pb.CONTINUE, 0, (t_dark) * pb.us-62*pb.ns)# 0 на всех каналах длительностью t_dark-62 ns переходных процессов
+    start = pb.pb_inst_pbonly(pb.ON|CH4|CH0, pb.CONTINUE, 0, t_norm*pb.us)#Поднимаем лазер и сбор на tnorm
+    pb.pb_inst_pbonly(pb.ON|CH4, pb.CONTINUE, 0, (t_laser-t_norm) * pb.us)# доподнимаем лазер
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, t_dark * pb.us)  # все нули на tdark
     pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0, t_SVCh * pb.us) #СВЧ импульс на t_свч
     pb.pb_inst_pbonly(pb.ON | CH4|CH0, pb.CONTINUE, 0, t_sbor * pb.us)#поднимаем измерения и лазер на t_сбор
     pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, (t_laser-t_sbor) * pb.us) #еще поднимаем второй лазер на tлазер-tсбор
-    pb.pb_inst_pbonly(0, pb.CONTINUE, 0, t_dark * pb.us) # все нули на t_dark
-    pb.pb_inst_pbonly(pb.ON | CH4|CH0, pb.CONTINUE, 0, t_norm * pb.us)#поднимаем третий лазер и измерение на t_norm
-    pb.pb_inst_pbonly(pb.ON | CH4 , pb.CONTINUE, 0, (t_laser-t_norm) * pb.us)#поднимаем третий лазер на t_laser-t_norm(аналогично 2)
     pb.pb_inst_pbonly(pb.ON | CH2, pb.CONTINUE, 0,100 * pb.ns)  # дергаем свип
     pb.pb_inst_pbonly(0x00, pb.BRANCH,start,30.0*pb.ms)# пауза 30 мс
     pb.pb_stop_programming()
@@ -81,7 +79,7 @@ def build_impulses_for_imp_odmr(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 5
 
 def build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin=1,end=400):
     spincore_init()
-    num_points = 400
+    num_points = 500
     time_step = (end - begin ) / num_points
     #top limit 1ms
     print(time_step)
@@ -89,17 +87,13 @@ def build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin=1,e
     pb.pb_start_programming(pb.PULSE_PROGRAM)
     start = pb.pb_inst_pbonly(0x00, pb.CONTINUE,0, 5*pb.ms)# пауза 5 мс
     for i in range(num_points):
-        pb.pb_inst_pbonly(pb.ON|CH4, pb.CONTINUE,0,t_laser*pb.us)#Первый лазерный импульс длиной t_laser
-        pb.pb_inst_pbonly(0, pb.CONTINUE, 0, (t_dark) * pb.us)# 0 на всех каналах длительностью t_dark
-
-        pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0, begin* pb.us + time_step * i * pb.us) #СВЧ импульс на t_свч
-
-        pb.pb_inst_pbonly(pb.ON | CH4|CH0, pb.CONTINUE, 0, t_sbor * pb.us)#поднимаем измерения и лазер на t_сбор
-        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, (t_laser-t_sbor) * pb.us) #еще поднимаем второй лазер на tлазер-tсбор
-        pb.pb_inst_pbonly(0, pb.CONTINUE, 0, t_dark * pb.us) # все нули на t_dark
-        pb.pb_inst_pbonly(pb.ON | CH4|CH0, pb.CONTINUE, 0, t_norm * pb.us)#поднимаем третий лазер и измерение на t_norm
-        pb.pb_inst_pbonly(pb.ON | CH4 , pb.CONTINUE, 0, (t_laser-t_norm) * pb.us)#поднимаем третий лазер на t_laser-t_norm(аналогично 2)
-        pb.pb_inst_pbonly(pb.ON | CH2, pb.CONTINUE, 0,100 * pb.ns)  # дергаем свип
+        pb.pb_inst_pbonly(pb.ON | CH4 | CH0, pb.CONTINUE, 0, t_norm * pb.us)  # Поднимаем лазер и сбор на tnorm
+        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, (t_laser - t_norm) * pb.us)  # доподнимаем лазер
+        pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, t_dark * pb.us)  # все нули на tdark
+        pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0, begin * pb.us + time_step * i * pb.us)  # СВЧ импульс переменной длины
+        pb.pb_inst_pbonly(pb.ON | CH4 | CH0, pb.CONTINUE, 0, t_sbor * pb.us)  # поднимаем измерения и лазер на t_сбор
+        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0,(t_laser - t_sbor) * pb.us)  # еще поднимаем второй лазер на tлазер-tсбор
+        pb.pb_inst_pbonly(pb.ON | CH2, pb.CONTINUE, 0, 100 * pb.ns)  # дергаем свип
         pb.pb_inst_pbonly(0x00, pb.CONTINUE,0,1*pb.ms)# пауза 1 мс(debug, 20 release)
     pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 5 * pb.ms)  # пауза 5 мс
     pb.pb_stop_programming()
@@ -124,4 +118,4 @@ def setup_ch4():
     pb.pb_start()
     pb.pb_close()
 if __name__ == "__main__":
-    build_impulses_for_imp_odmr()
+    build_impulses_rabi(begin=1,end=400)
