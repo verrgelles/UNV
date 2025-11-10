@@ -44,7 +44,7 @@ def flush_capture_buffer(capture, flush_time=0.1):
 def main():
     av_pulse = 1
     count_time = 1
-    num_probegov = 30
+    num_probegov = 100
     # 10
     shift = 10
 
@@ -60,8 +60,8 @@ def main():
     start_t = np.append(start_t, stop_t[-1])
     stop_t = np.append(stop_t, stop_t[-1]+5)
     # --- Настройки ---
-    start_freq = 2850 * 1E6
-    stop_freq = 2890 * 1E6
+    start_freq = 2775 * 1E6
+    stop_freq = 2800 * 1E6
     freq_step = 200 * 1E3
     gain = 10
     #RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"

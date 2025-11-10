@@ -31,7 +31,7 @@ class RigolDriver:
 
         try:
             #with _open_device() as dev:
-            self.dev.write(f':LEV {gain}dBm')
+            #self.dev.write(f':LEV {gain}dBm')
             self.dev.write(f':FREQ {freq}')
             self.dev.write(":OUTP 1")
             self.dev.write(":MOD:STAT 1")
@@ -81,7 +81,7 @@ class RigolDriver:
 
         try:
             self.dev.write(':SWE:RES')
-            self.dev.write(f':LEV {gain}dBm')
+            #self.dev.write(f':LEV {gain}dBm')
             self.dev.write(':SOUR1:FUNC:MODE SWE')
             self.dev.write(":SWE:MODE CONT")
             self.dev.write(":SWE:STEP:SHAP RAMP")

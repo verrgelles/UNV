@@ -124,4 +124,6 @@ class SpincoreDriver:
 
 if(__name__ == "__main__"):
     dr = SpincoreDriver()
-    dr.impulse_builder(1, [0], [1], [0], [10], 10, 1, 1)
+    dr.impulse_builder(1, [4], [1], [0], [1], 0, int(1e9), int(1))
+    while(1):
+        pass

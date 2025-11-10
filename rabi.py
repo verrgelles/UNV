@@ -1,6 +1,5 @@
 #from hardware.spincore import SpincoreDriver
-import spincore_driver.spinapi
-from spincore_driver.builder import build_impulses_for_imp_odmr
+from spincore_driver.builder import build_impulses_rabi
 from hardware.rigol_rw import RigolDriver
 import time
 import threading
@@ -14,9 +13,9 @@ from pyvisa import ResourceManager
 from packets import raw_packet_to_dict
 
 
-def plotter(frequencies, ph):
-    plt.plot(frequencies[2:], ph[2:])
-    plt.xlabel("Frequency (Hz)")
+def plotter(times, ph):
+    plt.plot(times[2:], ph[2:])
+    plt.xlabel("Time (us)")
     plt.ylabel("Photon count")
     plt.title("Photon count vs Frequency")
     plt.grid(True)
@@ -38,10 +37,14 @@ def flush_capture_buffer(capture, flush_time=0.1):
         if time.time() - start_time > flush_time:
             break
 
+
+# 0 AOM
+# 1 Gen imp in
+# 2 FPGA
+# 3 Generator sweep
+
+
 # --- Настройки ---
-start_freq = 2775 * 1E6
-stop_freq = 2800 * 1E6
-freq_step = 200 * 1E3
 gain = 10
 RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
@@ -49,17 +52,16 @@ iface = "Ethernet"
 cap = pcapy.open_live(iface, 106, 0, 0)  # snaplen=106, promisc=0, timeout=0
 cap.setfilter("udp and src host 192.168.1.2")
 
-frequencies = np.arange(start=start_freq, stop=(stop_freq + freq_step), step=freq_step)
-#print(len(frequencies))
+
 # --- Настройка генератора ---
 rigol=RigolDriver()
-rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
-
-build_impulses_for_imp_odmr(t_laser=100,t_dark=5,t_SVCh=0.1,t_sbor=5,t_norm=5)
-#---------------------Блок настроек-----------------------#
-
-num_probegov = 15
-
+num_probegov = 10
+rigol.setup_rabi(gain = 10,freq=2890 * 1E6)
+begin =0.1
+end = 3
+times = [begin+i*(end-begin)/400 for i in range(400)]
+print(times)
+build_impulses_rabi(t_laser = 1000, t_dark=5, t_sbor= 100, t_norm = 100,begin = 0.1, end = 3)
 # --- Очередь для передачи данных ---
 packet_queue_meas = queue.Queue(maxsize=100000)
 packet_queue_norm = queue.Queue(maxsize=100000)
@@ -81,20 +83,20 @@ def packet_thread():
 
 
 threading.Thread(target=packet_thread, daemon=True).start()
-ph = [0] * len(frequencies)
+ph = [0] * len(times)
 for i in range(num_probegov):
     while 1:
-        if packet_queue_meas.qsize() >= len(frequencies):
+        if packet_queue_meas.qsize() >= len(times):
             print(i)
             break
-    for c in range(0, len(frequencies)):
+    for c in range(0, len(times)):
         sbor=packet_queue_meas.get()
         norm=packet_queue_norm.get()
         ph[c] += 2*((norm-sbor)/(norm+sbor))
 
 # spincore.stopPb()
 # spincore.closePb()
-# rigol.shutdown_sweep()
-# rigol.dev.close()
+rigol.shutdown_sweep()
+rigol.dev.close()
 
-plotter(frequencies, ph)
+plotter(times, ph)

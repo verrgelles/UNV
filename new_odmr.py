@@ -80,7 +80,7 @@ stop_times=[t_ch0, t_ch0+T_ch1+t_ch0, #CH0
 shift = 33000
 # 4--AOM   3--Gen imp in  1--FPGA T2   0--FPGA T1 2--Generator sweep
 #WORKING CONFIGURATION
-spincore.impulse_builder(
+'''spincore.impulse_builder(
     num_channels=4,
     channel_numbers=[0, 3, 4, 2],
     impulse_counts=[3, 1,2,1],
@@ -99,7 +99,7 @@ spincore.impulse_builder(
     repeat_time=30000000,  # 30 мс
     pulse_scale=1,         # 1 ns
     rep_scale=1            # 1 ns
-)
+)'''
 # --- Очередь для передачи данных ---
 packet_queue_meas = queue.Queue(maxsize=100000)
 packet_queue_norm = queue.Queue(maxsize=100000)
