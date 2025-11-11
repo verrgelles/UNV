@@ -44,11 +44,6 @@ def spincore_init():
     pb.pb_set_defaults()
 ###########################################################
 # 4--AOM   3--Gen imp in   0--FPGA T1 2--Generator sweep
-#t_laser = 100
-#t_dark=5
-#t_SVCh = 100
-#t_sbor= 5
-#t_norm = 5
 #CH4 LASER
 #CH3 СВЧ
 #CH0 ИЗМЕРЕНИЕ
@@ -69,12 +64,6 @@ def build_impulses_for_imp_odmr(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 5
     # --- Запуск ---
 
     pb.pb_start()
-    #try:
-        #time.sleep(100)
-    #except:
-        #pass
-    #finally:
-        #pb.pb_stop()
     pb.pb_close()
 
 def build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin=1,end=400):
@@ -107,6 +96,23 @@ def build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin=1,e
         #pass
     #finally:
         #pb.pb_stop()
+    pb.pb_close()
+#CH4 LASER
+#CH3 СВЧ
+#CH0 ИЗМЕРЕНИЕ
+#CH2 SWEEP
+def build_impulses_for_cv_odmr(count_time=100*pb.us):
+    spincore_init()
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+
+
+    start = pb.pb_inst_pbonly(pb.ON | CH3|CH0|CH4, pb.CONTINUE, 0,count_time)#поднимаем лазер, свч и FPGA на count_time
+    pb.pb_inst_pbonly(pb.ON | CH2|CH4, pb.CONTINUE, 0,100*pb.ns) #дергаем свип на 100 нс, лазер в единице
+    pb.pb_inst_pbonly(pb.ON |CH4, pb.BRANCH, start, 30 * pb.ms) #пауза 30 мс между измерениями, лазер в единице
+
+
+    pb.pb_stop_programming()
+    pb.pb_start()
     pb.pb_close()
 def setup_ch4():
     spincore_init()
