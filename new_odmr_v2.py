@@ -1,11 +1,12 @@
 #from hardware.spincore import SpincoreDriver
 import spincore_driver.spinapi
-from spincore_driver.builder import build_impulses_for_imp_odmr
+from spincore_driver.builder import build_impulses_for_imp_odmr_single,build_impulses_for_imp_odmr_multi
 from hardware.rigol_rw import RigolDriver
 import time
 import threading
 import queue
-
+import datetime
+import os
 import numpy as np
 import pcapy
 from matplotlib import pyplot as plt
@@ -39,30 +40,30 @@ def flush_capture_buffer(capture, flush_time=0.1):
             break
 
 # --- Настройки ---
-start_freq = 2775 * 1E6
-stop_freq = 2800 * 1E6
+start_freq = 2855 * 1E6
+stop_freq = 2890 * 1E6
 freq_step = 500 * 1E3
 gain = 10
-RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
 iface = "Ethernet"
 cap = pcapy.open_live(iface, 106, 0, 0)  # snaplen=106, promisc=0, timeout=0
 cap.setfilter("udp and src host 192.168.1.2")
 
 frequencies = np.arange(start=start_freq, stop=(stop_freq + freq_step), step=freq_step)
-#print(len(frequencies))
+
 # --- Настройка генератора ---
 rigol=RigolDriver()
 rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
-
-build_impulses_for_imp_odmr(t_laser=100,t_dark=5,t_SVCh=1,t_sbor=5,t_norm=5)
+#number_of_measurements=10
+num_probegov = 100
+#build_impulses_for_imp_odmr_single(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 50, t_norm = 50,delay_between_measurements=50,number_of_measurements=number_of_measurements)
+build_impulses_for_imp_odmr_multi(t_laser=10, t_dark=5, t_SVCh=100, t_sbor=10, t_norm=10,t_dark_2=0)#микросекунды
 #---------------------Блок настроек-----------------------#
 
-num_probegov = 100
 
 # --- Очередь для передачи данных ---
-packet_queue_meas = queue.Queue(maxsize=100000)
-packet_queue_norm = queue.Queue(maxsize=100000)
+packet_queue_meas = queue.Queue(maxsize=1000000)
+packet_queue_norm = queue.Queue(maxsize=1000000)
 
 # --- Поток обработки пакетов ---
 def packet_thread():
@@ -71,9 +72,12 @@ def packet_thread():
         rw = packet[42:]  # обрезаем заголовки
         k = raw_packet_to_dict(rw)
         if k.get('flag_pos') == 1:
+            #print(k.get('package_id'))
             if k.get('package_id') % 2 == 0:
+                #print("put norm")
                 packet_queue_norm.put_nowait(k['count_pos'])
             else:
+                #print("put meas")
                 packet_queue_meas.put_nowait(k['count_pos'])
 
 
@@ -82,19 +86,34 @@ def packet_thread():
 
 threading.Thread(target=packet_thread, daemon=True).start()
 ph = [0] * len(frequencies)
+num=1
+'''while 1:
+    #if packet_queue_meas.qsize() >= number_of_measurements*len(frequencies):
+    if packet_queue_meas.qsize() >=  len(frequencies):
+        print(f"measurement number {num} done")
+        num+=1
+        break
+for c in range(0, len(frequencies)):
+    for _ in range(number_of_measurements):
+        sbor = packet_queue_meas.get()
+        norm = packet_queue_norm.get()
+        ph[c] += 2*((abs(norm-sbor))/(norm+sbor))'''
+
 for i in range(num_probegov):
     while 1:
         if packet_queue_meas.qsize() >= len(frequencies):
             print(i)
             break
     for c in range(0, len(frequencies)):
-        sbor=packet_queue_meas.get()
-        norm=packet_queue_norm.get()
-        ph[c] += 2*((abs(norm-sbor))/(norm+sbor))
+        sbor = packet_queue_meas.get()
+        norm = packet_queue_norm.get()
+        ph[c] += 2 * ((abs(norm - sbor)) / (norm + sbor))
 
-# spincore.stopPb()
-# spincore.closePb()
-# rigol.shutdown_sweep()
-# rigol.dev.close()
-
+filename = str(datetime.datetime.now())[:-7].replace(":", "-")+".txt"
+os.chdir("results_impulse_odmr")
+with open(filename, "w") as f:
+    f.write(str("Frequency(MHz)    Signal\n",))
+    for _ in range(len(frequencies)):
+        f.write(f"{(frequencies[_]/1000000):.2f}           {str(ph[_])}\n")
+os.chdir("..")
 plotter(frequencies, ph)

@@ -5,3 +5,7 @@ models/__pycache__/
 .idea/
 __pycache__/
 ui/__pycache__/
+results_cv_odmr/
+results_impulse_odmr/
+results_rabi/
+

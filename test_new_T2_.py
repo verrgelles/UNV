@@ -1,15 +1,20 @@
 import time
 import threading
 import queue
+from spincore_driver.builder import build_impulses_for_cv_odmr
 import numpy as np
 from matplotlib import pyplot as plt
 import pcapy
 from hardware.spincore import SpincoreDriver
 from hardware.rigol_rw import RigolDriver
 from packets import raw_packet_to_dict
-
+import datetime
+import os
+ns = 1.0
+us = 1000.0
+ms = 1000000.0
 def plotter(frequencies,ph):
-    plt.plot(frequencies[2:], ph[2:])
+    plt.plot(frequencies, ph)
     plt.xlabel("Frequency (Hz)")
     plt.ylabel("Photon count")
     plt.title("Photon count vs Frequency")
@@ -17,13 +22,15 @@ def plotter(frequencies,ph):
     plt.show()
 
 # --- Поток обработки пакетов ---
-def packet_thread(packet_queue, cap,av_pulse):
+def packet_thread(packet_queue, cap,num_probegov):
     def handle_packet(pwk, packet):
         # global packet_queue
+
         rw = packet[42:]  # обрезаем заголовки(ETH hdr IP hdr UDP hdr)
         k = raw_packet_to_dict(rw)
+        #print(k['count_pos'])
         if k.get('flag_pos') == 1:
-            packet_queue.put_nowait(k['count_pos'] / av_pulse)
+            packet_queue.put_nowait(k['count_pos'] / num_probegov)
 
     cap.loop(-1, handle_packet)
 # --- Очистка буфера ---
@@ -42,27 +49,11 @@ def flush_capture_buffer(capture, flush_time=0.1):
             break
 # --- Generate massives ---
 def main():
-    av_pulse = 1
-    count_time = 10
-    num_probegov = 50
-    # 10
-    shift = 10
-
-    #T1
-    start_t = shift + np.arange(av_pulse) * 2 * count_time - 5
-    stop_t  = start_t + count_time
-
-    #T2
-    start_t = np.append(start_t, 0)
-    stop_t = np.append(stop_t, max(stop_t)+3)
-
-    #Gen
-    start_t = np.append(start_t, stop_t[-1])
-    stop_t = np.append(stop_t, stop_t[-1]+5)
+    num_probegov = 1
     # --- Настройки ---
-    start_freq = 2775 * 1E6
-    stop_freq = 2800 * 1E6
-    freq_step = 200 * 1E3
+    start_freq = 2855 * 1E6
+    stop_freq = 2890 * 1E6
+    freq_step = 500 * 1E3
     gain = 10
     #RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 
@@ -76,26 +67,11 @@ def main():
     # --- Настройка генератора ---
     rigol=RigolDriver()
     rigol.setup_sweep(gain,start_freq,stop_freq,freq_step)
-    spincore=SpincoreDriver()
 
-    start_t=start_t.tolist()
-    start_t.append(0)
-    stop_t = stop_t.tolist()
-    stop_t.append(14)
-    print(start_t,stop_t)
-    spincore.impulse_builder(
-        4,
-        [0, 1, 2,4],
-        [av_pulse, 1, 1,1],
-        start_t,
-        stop_t,
-        5000,
-        int(1E6),
-        int(1E3)
-    )
+    build_impulses_for_cv_odmr(count_time=1 * ms)
     # --- Очередь для передачи данных ---
     packet_queue = queue.Queue(maxsize=100000)
-    threading.Thread(target=packet_thread, args=(packet_queue,cap,av_pulse), daemon=True).start()
+    threading.Thread(target=packet_thread, args=(packet_queue,cap,num_probegov), daemon=True).start()
     ph = [0]*len(frequencies)
     for i in range(num_probegov):
         while 1:
@@ -107,6 +83,13 @@ def main():
 
     #dev.write(":OUTP 0")
     rigol.shutdown_sweep()
+    filename = str(datetime.datetime.now())[:-7].replace(":", "-")+".txt"
+    os.chdir("results_cv_odmr")
+    with open(filename, "w") as f:
+        f.write(str("Frequency(MHz)    Signal\n",))
+        for _ in range(len(frequencies)):
+            f.write(f"{(frequencies[_]/1000000):.2f}           {str(ph[_])}\n")
+    os.chdir("..")
     plotter(frequencies[2:], ph[2:])
 
 if __name__ == "__main__":

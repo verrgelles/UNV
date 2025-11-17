@@ -53,50 +53,73 @@ def spincore_init():
 #CH3 СВЧ
 #CH0 ИЗМЕРЕНИЕ
 #CH2 SWEEP
-def build_impulses_for_imp_odmr(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 5, t_norm = 5):
+'''если хотим несколько пробегов'''
+def build_impulses_for_imp_odmr_multi(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 5, t_norm = 5,t_dark_2= 1):
     spincore_init()
     pb.pb_start_programming(pb.PULSE_PROGRAM)
     start = pb.pb_inst_pbonly(pb.ON|CH4|CH0, pb.CONTINUE, 0, t_norm*pb.us)#Поднимаем лазер и сбор на tnorm
     pb.pb_inst_pbonly(pb.ON|CH4, pb.CONTINUE, 0, (t_laser-t_norm) * pb.us)# доподнимаем лазер
     pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, t_dark * pb.us)  # все нули на tdark
-    pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0, t_SVCh * pb.us) #СВЧ импульс на t_свч
+    pb.pb_inst_pbonly(pb.ON | CH3 | CH5, pb.CONTINUE, 0, t_SVCh * pb.us) #СВЧ импульс на t_свч ПЛЮС дублирование на CH3
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, t_dark_2 * pb.us) # все нули на tdark_2
     pb.pb_inst_pbonly(pb.ON | CH4|CH0, pb.CONTINUE, 0, t_sbor * pb.us)#поднимаем измерения и лазер на t_сбор
     pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, (t_laser-t_sbor) * pb.us) #еще поднимаем второй лазер на tлазер-tсбор
     pb.pb_inst_pbonly(pb.ON | CH2, pb.CONTINUE, 0,100 * pb.ns)  # дергаем свип
     pb.pb_inst_pbonly(0x00, pb.BRANCH,start,30.0*pb.ms)# пауза 30 мс
     pb.pb_stop_programming()
-
+    print("stopped programming")
     # --- Запуск ---
 
     pb.pb_start()
-    #try:
-        #time.sleep(100)
-    #except:
-        #pass
-    #finally:
-        #pb.pb_stop()
     pb.pb_close()
-
-def build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin=1,end=400):
+'''один пробег, несколько измерений в точке'''
+def build_impulses_for_imp_odmr_single(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 5, t_norm = 5,delay_between_measurements=5,number_of_measurements=20):
+    if (number_of_measurements > 500):
+        print("Too many measurements:", number_of_measurements)
+        return
     spincore_init()
-    num_points = 500
-    time_step = (end - begin ) / num_points
-    #top limit 1ms
-    print(time_step)
-    print("num_points:", num_points)
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+    start = pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, delay_between_measurements * pb.us)  # все нули на tdark
+    for i in range(number_of_measurements):
+        #print(i)
+        pb.pb_inst_pbonly(pb.ON|CH4|CH0, pb.CONTINUE, 0, t_norm*pb.us)#Поднимаем лазер и сбор на tnorm
+        pb.pb_inst_pbonly(pb.ON|CH4, pb.CONTINUE, 0, (t_laser-t_norm) * pb.us)# доподнимаем лазер
+        pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, t_dark * pb.us)  # все нули на tdark
+        pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0, t_SVCh * pb.us) #СВЧ импульс на t_свч
+        pb.pb_inst_pbonly(pb.ON | CH4|CH0, pb.CONTINUE, 0, t_sbor * pb.us)#поднимаем измерения и лазер на t_сбор
+        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, (t_laser-t_sbor) * pb.us) #еще поднимаем второй лазер на tлазер-tсбор
+        pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, delay_between_measurements * pb.us)  # пауза между двумя измерениями
+
+    pb.pb_inst_pbonly(pb.ON | CH2, pb.CONTINUE, 0,100 * pb.ns)  # дергаем свип
+    pb.pb_inst_pbonly(0x00, pb.BRANCH,start,30.0*pb.ms)# пауза 30 мс
+    pb.pb_stop_programming()
+    print("stopped programming")
+    # --- Запуск ---
+
+    pb.pb_start()
+    pb.pb_close()
+def build_impulses_rabi(begin,end,time_step,t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,t_dark_2=2):
+    spincore_init()
+    num_points_max = 500
+    num_points=int(round((end-begin)/time_step))
+    if num_points_max < num_points+1:
+        print(f"Too many points:{num_points}, max number is {num_points_max}")
+        exit(1)
+    #arr =[]
     pb.pb_start_programming(pb.PULSE_PROGRAM)
     start = pb.pb_inst_pbonly(0x00, pb.CONTINUE,0, 5*pb.ms)# пауза 5 мс
-    for i in range(num_points):
+    for i in range(num_points+1):
         pb.pb_inst_pbonly(pb.ON | CH4 | CH0, pb.CONTINUE, 0, t_norm * pb.us)  # Поднимаем лазер и сбор на tnorm
         pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, (t_laser - t_norm) * pb.us)  # доподнимаем лазер
         pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, t_dark * pb.us)  # все нули на tdark
         pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0, begin * pb.us + time_step * i * pb.us)  # СВЧ импульс переменной длины
+        pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, t_dark_2 * pb.us)  # все нули на tdark2
         pb.pb_inst_pbonly(pb.ON | CH4 | CH0, pb.CONTINUE, 0, t_sbor * pb.us)  # поднимаем измерения и лазер на t_сбор
         pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0,(t_laser - t_sbor) * pb.us)  # еще поднимаем второй лазер на tлазер-tсбор
-        pb.pb_inst_pbonly(pb.ON | CH2, pb.CONTINUE, 0, 100 * pb.ns)  # дергаем свип
         pb.pb_inst_pbonly(0x00, pb.CONTINUE,0,1*pb.ms)# пауза 1 мс(debug, 20 release)
-    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 5 * pb.ms)  # пауза 5 мс
+    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 1 * pb.ms)  # пауза 5 мс
     pb.pb_stop_programming()
+    #print(arr)
     print("stopped programming")
     # --- Запуск ---
 
@@ -108,14 +131,51 @@ def build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin=1,e
     #finally:
         #pb.pb_stop()
     pb.pb_close()
-def setup_ch4():
+def build_impulses_for_cv_odmr(count_time=100*pb.us):
     spincore_init()
     pb.pb_start_programming(pb.PULSE_PROGRAM)
-    start = pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0,  1000*pb.ms)
-    pb.pb_inst_pbonly(0, pb.CONTINUE, 0, 500 * pb.ms)
-    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 0 * pb.ms)
+
+
+    start = pb.pb_inst_pbonly(pb.ON | CH3|CH0|CH4, pb.CONTINUE, 0,count_time)#поднимаем лазер, свч и FPGA на count_time
+    pb.pb_inst_pbonly(pb.ON | CH2|CH4, pb.CONTINUE, 0,100*pb.ns) #дергаем свип на 100 нс, лазер в единице
+    pb.pb_inst_pbonly(pb.ON |CH4, pb.BRANCH, start, 30 * pb.ms) #пауза 30 мс между измерениями, лазер в единице
+
+
     pb.pb_stop_programming()
     pb.pb_start()
     pb.pb_close()
+def setup_ch4(t_high,t_low):
+    spincore_init()
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+    start = pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_high)
+    #pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0,30 * pb.ms)
+    #pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, 30 * pb.us)
+    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 1.0 * t_low)
+    pb.pb_stop_programming()
+    print("stopped programming")
+    # --- Запуск ---
+
+    pb.pb_start()
+    pb.pb_close()
+# CH4 LASER
+# CH0 ИЗМЕРЕНИЕ
+def build_impulses_for_measuring_delays(delay,t_laser=500*pb.ms,t_sbor=5*pb.ms):
+    spincore_init()
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+    start = pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, delay)  # поднимаем лазер на время задержки
+    pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_sbor )  #поднимаем лазер и считывание на t_sbor
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser-t_sbor-delay)  # доподнимаем лазер до 500 мс
+    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 5 *  pb.ms)  # все нули
+    pb.pb_stop_programming()
+    pb.pb_start()
+    pb.pb_close()
+
+
+
 if __name__ == "__main__":
-    build_impulses_rabi(begin=1,end=400)
+    #build_impulses_for_imp_odmr_single(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 5, t_norm = 5)
+    ms = pb.ms
+    ns=pb.ns
+    us=pb.us
+    #setup_ch4(t_high=500 * ms,t_low=500 * ms)
+    build_impulses_for_measuring_delays(delay_ns=200)

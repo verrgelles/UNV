@@ -4,17 +4,17 @@ from hardware.rigol_rw import RigolDriver
 import time
 import threading
 import queue
-
+import datetime
 import numpy as np
 import pcapy
 from matplotlib import pyplot as plt
 from pyvisa import ResourceManager
-
+import os
 from packets import raw_packet_to_dict
 
 
 def plotter(times, ph):
-    plt.plot(times[2:], ph[2:])
+    plt.scatter(times, ph)
     plt.xlabel("Time (us)")
     plt.ylabel("Photon count")
     plt.title("Photon count vs Frequency")
@@ -53,15 +53,17 @@ cap = pcapy.open_live(iface, 106, 0, 0)  # snaplen=106, promisc=0, timeout=0
 cap.setfilter("udp and src host 192.168.1.2")
 
 
-# --- Настройка генератора ---
+# --------------------------------- Блок настроек ----------------------------------------№
 rigol=RigolDriver()
-num_probegov = 3
-rigol.setup_rabi(gain = 10,freq=2890 * 1E6)
-begin =0.1
+num_probegov = 50000
+rigol.setup_rabi(gain = 10,freq=2785 * 1E6)
+begin = 0
 end = 3
-times = [begin+i*(end-begin)/500 for i in range(500)]
+time_step = 0.05
+times = [begin+i*time_step for i in range(1+int(round((end-begin)/time_step)))]
 print(times)
-build_impulses_rabi(t_laser = 1000, t_dark=5, t_sbor= 100, t_norm = 100,begin = 0.1, end = 3)
+build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin = begin, end = end,time_step=time_step,t_dark_2=2)
+#####################################################################################################
 # --- Очередь для передачи данных ---
 packet_queue_meas = queue.Queue(maxsize=100000)
 packet_queue_norm = queue.Queue(maxsize=100000)
@@ -92,11 +94,18 @@ for i in range(num_probegov):
     for c in range(0, len(times)):
         sbor=packet_queue_meas.get()
         norm=packet_queue_norm.get()
-        ph[c] += 2*((norm-sbor)/(norm+sbor))
+        #ph[c] += 2*((norm-sbor)/(norm+sbor))
+        ph[c] += 2 * (abs((sbor - norm)) / (norm + sbor))
 
 # spincore.stopPb()
 # spincore.closePb()
 rigol.shutdown_sweep()
 rigol.dev.close()
-
+os.chdir("results_rabi")
+filename=str(datetime.datetime.now())[:-7].replace(":","-")+".txt"
+with open(filename,"w") as f:
+    f.write("Time(us)    Signal\n")
+    for _ in range(len(times)):
+        f.write(f"{str(times[_])}         {str(ph[_])}\n")
+os.chdir("..")
 plotter(times, ph)
