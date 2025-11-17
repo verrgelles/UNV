@@ -29,13 +29,6 @@ CH21 = 0x1 << 21
 CH22 = 0x1 << 22
 CH23 = 0x1 << 223
 
-
-
-@dataclass
-class Point:
-    x: float
-    y: float
-    z: float = 0.0
 def spincore_init():
     if pb.pb_init() != 0:
         print("Init failed:", pb.pb_get_error())
@@ -169,7 +162,26 @@ def build_impulses_for_measuring_delays(delay,t_laser=500*pb.ms,t_sbor=5*pb.ms):
     pb.pb_stop_programming()
     pb.pb_start()
     pb.pb_close()
-
+#CH4 LASER
+#CH3 СВЧ
+#CH0 ИЗМЕРЕНИЕ
+#CH2 SWEEP
+def build_odmr_impulses_with_delays(t_laser=1000,delay_between_laser_and_read=600,t_read=100,t_dark=500,t_SVCH=500,delay_between_svch_and_second_laser=100):
+    spincore_init()
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+    start = pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, delay_between_laser_and_read)  # поднимаем лазер на время задержки(выставления лазерного импульса)
+    pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_read)  # поднимаем лазер и считывание на t_read
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - delay_between_laser_and_read)  # доподнимаем лазер до t_laser
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, t_dark)  # все нули на tdark
+    pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0,t_SVCH)  # СВЧ длины t_svch
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, delay_between_svch_and_second_laser)  # все нули на задержку между свч и лазером
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, delay_between_laser_and_read)  # поднимаем второй лазер на время задержки(выставления лазерного импульса)
+    pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_read)  # поднимаем лазер и считывание на t_read
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - delay_between_laser_and_read)  # доподнимаем лазер до t_laser
+    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 5 * pb.ms)  # все нули
+    pb.pb_stop_programming()
+    pb.pb_start()
+    pb.pb_close()
 
 
 if __name__ == "__main__":
@@ -178,4 +190,5 @@ if __name__ == "__main__":
     ns=pb.ns
     us=pb.us
     #setup_ch4(t_high=500 * ms,t_low=500 * ms)
-    build_impulses_for_measuring_delays(delay_ns=200)
+    #build_impulses_for_measuring_delays(delay=200)
+    build_odmr_impulses_with_delays(t_laser=1000*us, delay_between_laser_and_read=600*us, t_read=100*us, t_dark=500*us, t_SVCH=500*us,delay_between_svch_and_second_laser=100*ns)
