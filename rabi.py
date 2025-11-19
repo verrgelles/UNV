@@ -1,5 +1,5 @@
 #from hardware.spincore import SpincoreDriver
-from spincore_driver.builder import build_impulses_rabi
+from spincore_driver.builder import build_impulses_rabi_v2
 from hardware.rigol_rw import RigolDriver
 import time
 import threading
@@ -51,18 +51,22 @@ RES = "USB0::0x1AB1::0x099C::DSG3G264300050::INSTR"
 iface = "Ethernet"
 cap = pcapy.open_live(iface, 106, 0, 0)  # snaplen=106, promisc=0, timeout=0
 cap.setfilter("udp and src host 192.168.1.2")
-
+ns = 1.0
+us = 1000.0
+ms = 1000000.0
 
 # --------------------------------- Блок настроек ----------------------------------------№
 rigol=RigolDriver()
-num_probegov = 50000
-rigol.setup_rabi(gain = 10,freq=2785 * 1E6)
+num_probegov = 10000
+rigol.setup_rabi(gain = 10,freq=2773 * 1E6)
 begin = 0
-end = 3
-time_step = 0.05
+end = 1.5
+time_step = 0.015
 times = [begin+i*time_step for i in range(1+int(round((end-begin)/time_step)))]
 print(times)
-build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin = begin, end = end,time_step=time_step,t_dark_2=2)
+#build_impulses_rabi(t_laser = 100, t_dark=5, t_sbor= 5, t_norm = 5,begin = begin, end = end,time_step=time_step,t_dark_2=2)
+build_impulses_rabi_v2(begin=10 * ns, end=1.5 * us, time_step=0.015 * us, t_laser=100 * us,delay_between_laser_and_read=200 * ns, t_read=5 * us, t_dark=2 * us, delay_between_svch_and_second_laser=1 * us)
+
 #####################################################################################################
 # --- Очередь для передачи данных ---
 packet_queue_meas = queue.Queue(maxsize=100000)
@@ -94,7 +98,8 @@ for i in range(num_probegov):
     for c in range(0, len(times)):
         sbor=packet_queue_meas.get()
         norm=packet_queue_norm.get()
-        #ph[c] += 2*((norm-sbor)/(norm+sbor))
+        if(norm+sbor==0):
+            continue
         ph[c] += 2 * (abs((sbor - norm)) / (norm + sbor))
 
 # spincore.stopPb()

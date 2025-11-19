@@ -59,8 +59,8 @@ def main():
     ###Все времена в наносекундах##############
     start_delay = 100
     stop_delay = 900
-    delay_step = 20
-    num_captured_photons=5
+    delay_step = 1
+    num_captured_photons=100
     ##############################################
     delays=[ i for i in range(start_delay,stop_delay+delay_step,delay_step)]
     values=[0]*len(delays)
@@ -68,7 +68,7 @@ def main():
     packet_queue = queue.Queue(maxsize=100000)
     threading.Thread(target=packet_thread, args=(packet_queue, cap), daemon=True).start()
     for i in range(0,len(delays)):
-        build_impulses_for_measuring_delays(delay=delays[i]*ns,t_laser=50*ms,t_sbor=10*ms)
+        build_impulses_for_measuring_delays(delay=delays[i]*ns,t_laser=5*ms,t_sbor=1*ms)
         # --- Очередь для передачи данных ---
         #packet_queue = queue.Queue(maxsize=100000)
         #threading.Thread(target=packet_thread, args=(packet_queue,cap), daemon=True).start()

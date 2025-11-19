@@ -137,16 +137,16 @@ def build_impulses_for_cv_odmr(count_time=100*pb.us):
 # CH3 СВЧ
 # CH0 ИЗМЕРЕНИЕ
 # CH2 SWEEP
-def build_impulses_for_cv_odmr_v2(read_time=100*pb.us,num_average=100):
+def build_impulses_for_cv_odmr_v2(read_time=100*pb.us,num_average=100,delay_between_measurements=5*pb.us):
     spincore_init()
     pb.pb_start_programming(pb.PULSE_PROGRAM)
-    start = pb.pb_inst_pbonly(pb.ON |CH4, pb.CONTINUE, 0,10*pb.ms)#задержка 30 мс между циклами, лазер в единице
+    start = pb.pb_inst_pbonly(pb.ON |CH4, pb.CONTINUE, 0,20*pb.ms)#задержка 30 мс между циклами, лазер в единице
     loop = pb.pb_inst_pbonly(pb.ON | CH3|CH4, pb.LOOP, num_average,100*pb.ns)#поднимаем лазер и свч  на 100нс
     pb.pb_inst_pbonly(pb.ON | CH3|CH0|CH4, pb.CONTINUE, 0,read_time) #поднимаем считывание, свч и лазер на read_time
     pb.pb_inst_pbonly(pb.ON | CH3 | CH4, pb.CONTINUE, 0, 100 * pb.ns)  # ещё раз поднимаем лазер и свч  на 100нс
-    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, 5 * pb.us)  # 5 мкс паузы между измерениями, лазер в единице
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, delay_between_measurements )  # 5 мкс паузы между измерениями, лазер в единице
     pb.pb_inst_pbonly(pb.ON | CH4|CH0, pb.CONTINUE, 0, read_time)  # поднимаем считывание на t_read, лазер в единице
-    pb.pb_inst_pbonly(pb.ON | CH4, pb.END_LOOP, loop, 5 * pb.us)  # 5 мкс паузы между измерениями, лазер в единице
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.END_LOOP, loop, delay_between_measurements)  # 5 мкс паузы между измерениями, лазер в единице
     pb.pb_inst_pbonly(pb.ON | CH4|CH2, pb.BRANCH, start, 100 * pb.ns)  # дергаем свип, лазер в единице
 
     pb.pb_stop_programming()
@@ -206,4 +206,5 @@ if __name__ == "__main__":
     us=pb.us
     #setup_ch4(t_high=500 * ms,t_low=500 * ms)
     #build_impulses_for_measuring_delays(delay=200)
-    build_odmr_impulses_with_delays(t_laser=1000*us, delay_between_laser_and_read=600*us, t_read=100*us, t_dark=500*us, t_SVCH=500*us,delay_between_svch_and_second_laser=100*ns)
+    build_impulses_for_cv_odmr_v2(read_time=100 * pb.us, num_average=10)
+    #build_odmr_impulses_with_delays(t_laser=1000*us, delay_between_laser_and_read=600*us, t_read=100*us, t_dark=500*us, t_SVCH=500*us,delay_between_svch_and_second_laser=100*ns)

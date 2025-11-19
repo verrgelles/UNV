@@ -7,30 +7,29 @@ from matplotlib import pyplot as plt
 import pcapy
 from hardware.spincore import SpincoreDriver
 from hardware.rigol_rw import RigolDriver
-from packets import raw_packet_to_dict
+from packets import raw_packet_to_dict, raw_packet_to_dict_little
 import datetime
 import os
 ns = 1.0
 us = 1000.0
 ms = 1000000.0
-def plotter(frequencies,ph):
+def plotter(frequencies,ph,ph2):
     plt.plot(frequencies, ph)
+    #plt.plot(frequencies, ph2)
     plt.xlabel("Frequency (Hz)")
     plt.ylabel("Photon count")
     plt.title("Photon count vs Frequency")
     plt.grid(True)
     plt.show()
-
 # --- Поток обработки пакетов ---
-def packet_thread(packet_queue, cap,num_probegov):
+def packet_thread(packet_queue_norm,packet_queue_meas, cap):
     def handle_packet(pwk, packet):
-        # global packet_queue
-
-        rw = packet[42:]  # обрезаем заголовки(ETH hdr IP hdr UDP hdr)
-        k = raw_packet_to_dict(rw)
-        #print(k['count_pos'])
+        k = raw_packet_to_dict(packet[42:])# обрезаем заголовки(ETH hdr IP hdr UDP hdr)
         if k.get('flag_pos') == 1:
-            packet_queue.put_nowait(k['count_pos'])
+            if k.get('package_id') % 2 == 0:
+                packet_queue_norm.put_nowait(k['count_pos'])
+            else:
+                packet_queue_meas.put_nowait(k['count_pos'])
 
     cap.loop(-1, handle_packet)
 # --- Очистка буфера ---
@@ -49,7 +48,6 @@ def flush_capture_buffer(capture, flush_time=0.1):
             break
 # --- Generate massives ---
 def main():
-    num_probegov = 30
     # --- Настройки ---
     start_freq = 2855 * 1E6
     stop_freq = 2890 * 1E6
@@ -67,22 +65,31 @@ def main():
     # --- Настройка генератора ---
     rigol=RigolDriver()
     rigol.setup_sweep(gain,start_freq,stop_freq,freq_step)
-    ph = [0] * len(frequencies)
     ####################################################################
-    build_impulses_for_cv_odmr(count_time=100 * us)
-    #build_impulses_for_cv_odmr_v2(read_time=1 * ms,num_average=30,delay_between_measurements=5*us)
+    num_average=80
+    build_impulses_for_cv_odmr_v2(read_time=1 * ms,num_average=num_average,delay_between_measurements=1000*us)
     #####################################################################################
     # --- Очередь для передачи данных ---
-    packet_queue = queue.Queue(maxsize=100000)
-    threading.Thread(target=packet_thread, args=(packet_queue,cap,num_probegov), daemon=True).start()
-    for i in range(num_probegov):
-        while 1:
-            if packet_queue.qsize() >= len(frequencies):
-                print(i)
-                break
-        for c in range(0, len(frequencies)):
-            ph[c]+=(packet_queue.get()/num_probegov)
+    packet_queue_norm = queue.Queue(maxsize=10000000)
+    packet_queue_meas = queue.Queue(maxsize=10000000)
 
+    threading.Thread(target=packet_thread, args=(packet_queue_norm,packet_queue_meas,cap), daemon=True).start()
+    ph = [0]*len(frequencies)
+    ph2 = [0] * len(frequencies)
+    while 1:
+        if packet_queue_meas.qsize() >= num_average*len(frequencies):
+            print("done")
+            break
+    print(debug)
+    for c in range(0, len(frequencies)):
+        for _ in range(num_average):
+            sbor = packet_queue_meas.get()
+            norm = packet_queue_norm.get()
+            if (norm + sbor == 0):
+                continue
+            # ph[c] += 1 -  ((abs(sbor - norm)) / (norm + sbor))
+            ph[c]+= sbor/norm
+            #ph2[c]+=sbor/num_average
     #dev.write(":OUTP 0")
     rigol.shutdown_sweep()
     filename = str(datetime.datetime.now())[:-7].replace(":", "-")+".txt"
@@ -92,7 +99,7 @@ def main():
         for _ in range(len(frequencies)):
             f.write(f"{(frequencies[_]/1000000):.2f}           {str(ph[_])}\n")
     os.chdir("..")
-    plotter(frequencies[2:], ph[2:])
+    plotter(frequencies[2:], ph[2:],ph2[2:])
 
 if __name__ == "__main__":
     main()
