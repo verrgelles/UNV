@@ -13,23 +13,19 @@ import os
 ns = 1.0
 us = 1000.0
 ms = 1000000.0
-def plotter(frequencies,ph,ph2):
+def plotter(frequencies,ph):
     plt.plot(frequencies, ph)
-    #plt.plot(frequencies, ph2)
     plt.xlabel("Frequency (Hz)")
     plt.ylabel("Photon count")
     plt.title("Photon count vs Frequency")
     plt.grid(True)
     plt.show()
 # --- Поток обработки пакетов ---
-def packet_thread(packet_queue_norm,packet_queue_meas, cap):
+def packet_thread(packet_queue, cap):
     def handle_packet(pwk, packet):
         k = raw_packet_to_dict(packet[42:])# обрезаем заголовки(ETH hdr IP hdr UDP hdr)
         if k.get('flag_pos') == 1:
-            if k.get('package_id') % 2 == 0:
-                packet_queue_norm.put_nowait(k['count_pos'])
-            else:
-                packet_queue_meas.put_nowait(k['count_pos'])
+            packet_queue.put_nowait(k['count_pos'])
 
     cap.loop(-1, handle_packet)
 # --- Очистка буфера ---
@@ -64,32 +60,35 @@ def main():
 
     # --- Настройка генератора ---
     rigol=RigolDriver()
-    rigol.setup_sweep(gain,start_freq,stop_freq,freq_step)
+    rigol.setup_sweep_for_imp_odmr(gain,start_freq,stop_freq,freq_step)
     ####################################################################
-    num_average=80
-    build_impulses_for_cv_odmr_v2(read_time=1 * ms,num_average=num_average,delay_between_measurements=1000*us)
+    num_average=500
+    build_impulses_for_cv_odmr_v2(read_time=10 * ns,num_average=num_average,delay_between_measurements=250*us)
     #####################################################################################
     # --- Очередь для передачи данных ---
-    packet_queue_norm = queue.Queue(maxsize=10000000)
-    packet_queue_meas = queue.Queue(maxsize=10000000)
+    packet_queue = queue.Queue(maxsize=10000000)
 
-    threading.Thread(target=packet_thread, args=(packet_queue_norm,packet_queue_meas,cap), daemon=True).start()
+    threading.Thread(target=packet_thread, args=(packet_queue,cap), daemon=True).start()
     ph = [0]*len(frequencies)
     ph2 = [0] * len(frequencies)
+    sbor_arr=[0] * len(frequencies)
+    norm_arr=[0] * len(frequencies)
     while 1:
-        if packet_queue_meas.qsize() >= num_average*len(frequencies):
+        if packet_queue.qsize() >= 2*num_average*len(frequencies):
             print("done")
             break
-    print(debug)
     for c in range(0, len(frequencies)):
         for _ in range(num_average):
-            sbor = packet_queue_meas.get()
-            norm = packet_queue_norm.get()
+            sbor = packet_queue.get()
+            norm = packet_queue.get()
             if (norm + sbor == 0):
                 continue
-            # ph[c] += 1 -  ((abs(sbor - norm)) / (norm + sbor))
-            ph[c]+= sbor/norm
-            #ph2[c]+=sbor/num_average
+            ph[c] += ((abs(sbor - norm)) / (norm + sbor))
+
+            # ph[c]+= sbor/norm
+            # sbor_arr[c]+=sbor
+            # norm_arr[c]+=norm
+        ph[c]= 1 - ph[c]/num_average
     #dev.write(":OUTP 0")
     rigol.shutdown_sweep()
     filename = str(datetime.datetime.now())[:-7].replace(":", "-")+".txt"
@@ -99,7 +98,7 @@ def main():
         for _ in range(len(frequencies)):
             f.write(f"{(frequencies[_]/1000000):.2f}           {str(ph[_])}\n")
     os.chdir("..")
-    plotter(frequencies[2:], ph[2:],ph2[2:])
+    plotter(frequencies[2:], ph[2:])
 
 if __name__ == "__main__":
     main()
