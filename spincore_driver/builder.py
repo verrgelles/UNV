@@ -127,12 +127,27 @@ def build_impulses_rabi(begin,end,time_step,t_laser = 100, t_dark=5, t_sbor= 5, 
 def build_impulses_for_cv_odmr(count_time=100*pb.us):
     spincore_init()
     pb.pb_start_programming(pb.PULSE_PROGRAM)
-
-
     start = pb.pb_inst_pbonly(pb.ON | CH3|CH0|CH4, pb.CONTINUE, 0,count_time)#поднимаем лазер, свч и FPGA на count_time
     pb.pb_inst_pbonly(pb.ON | CH2|CH4, pb.CONTINUE, 0,100*pb.ns) #дергаем свип на 100 нс, лазер в единице
     pb.pb_inst_pbonly(pb.ON |CH4, pb.BRANCH, start, 30 * pb.ms) #пауза 30 мс между измерениями, лазер в единице
-
+    pb.pb_stop_programming()
+    pb.pb_start()
+    pb.pb_close()
+# CH4 LASER
+# CH3 СВЧ
+# CH0 ИЗМЕРЕНИЕ
+# CH2 SWEEP
+def build_impulses_for_cv_odmr_v2(read_time=100*pb.us,num_average=100):
+    spincore_init()
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+    start = pb.pb_inst_pbonly(pb.ON |CH4, pb.CONTINUE, 0,10*pb.ms)#задержка 30 мс между циклами, лазер в единице
+    loop = pb.pb_inst_pbonly(pb.ON | CH3|CH4, pb.LOOP, num_average,100*pb.ns)#поднимаем лазер и свч  на 100нс
+    pb.pb_inst_pbonly(pb.ON | CH3|CH0|CH4, pb.CONTINUE, 0,read_time) #поднимаем считывание, свч и лазер на read_time
+    pb.pb_inst_pbonly(pb.ON | CH3 | CH4, pb.CONTINUE, 0, 100 * pb.ns)  # ещё раз поднимаем лазер и свч  на 100нс
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, 5 * pb.us)  # 5 мкс паузы между измерениями, лазер в единице
+    pb.pb_inst_pbonly(pb.ON | CH4|CH0, pb.CONTINUE, 0, read_time)  # поднимаем считывание на t_read, лазер в единице
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.END_LOOP, loop, 5 * pb.us)  # 5 мкс паузы между измерениями, лазер в единице
+    pb.pb_inst_pbonly(pb.ON | CH4|CH2, pb.BRANCH, start, 100 * pb.ns)  # дергаем свип, лазер в единице
 
     pb.pb_stop_programming()
     pb.pb_start()

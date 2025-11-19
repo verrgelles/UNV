@@ -30,7 +30,7 @@ def packet_thread(packet_queue, cap,num_probegov):
         k = raw_packet_to_dict(rw)
         #print(k['count_pos'])
         if k.get('flag_pos') == 1:
-            packet_queue.put_nowait(k['count_pos'] / num_probegov)
+            packet_queue.put_nowait(k['count_pos'])
 
     cap.loop(-1, handle_packet)
 # --- Очистка буфера ---
