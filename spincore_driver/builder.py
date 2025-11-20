@@ -197,14 +197,74 @@ def build_odmr_impulses_with_delays(t_laser=1000,delay_between_laser_and_read=60
     pb.pb_stop_programming()
     pb.pb_start()
     pb.pb_close()
-
+def build_odmr_impulses_with_delays_v2(t_laser,t_SVCH,t_read,T1,T2,T3,T4,T5):
+    spincore_init()
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+    start = pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, T1)  # поднимаем лазер на T1
+    pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_read)  # поднимаем лазер и считывание на t_read
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # доподнимаем лазер до t_laser
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T2)  # все нули на T2
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # поднимаем лазер2 до t_laser
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T3)  # все нули на T3
+    pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0,t_SVCH)  # СВЧ длины t_svch
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T4)  # все нули на T4
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, T5)  # поднимаем лазер на T5
+    pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_read)  # снова поднимаем лазер и считывание на t_read
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # снова доподнимаем лазер до t_laser
+    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 5 * pb.ms)  # все нули, задержка 5 мс между измерениями
+    pb.pb_stop_programming()
+    pb.pb_start()
+    pb.pb_close()
+def build_impulses_rabi_v2(begin,end,time_step,t_laser,t_read,T1,T2,T3,T4,T5):
+    spincore_init()
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+    spincore_init()
+    num_points_max = 300
+    num_points = int(round((end - begin) / time_step))
+    if num_points_max < num_points:
+        print(f"Too many points:{num_points}, max number is {num_points_max}")
+        exit(1)
+    start=pb.pb_inst_pbonly(0x00, pb.BRANCH, 0, 5 * pb.ms)  # все нули, задержка 5 мс между измерениями
+    for i in range(num_points):
+        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, T1)  # поднимаем лазер на T1
+        pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_read)  # поднимаем лазер и считывание на t_read
+        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # доподнимаем лазер до t_laser
+        pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T2)  # все нули на T2
+        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # поднимаем лазер2 на t_laser
+        pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T3)  # все нули на T3
+        pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0,  begin  + time_step * i )  # СВЧ импульс переменной длины
+        pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T4)  # все нули на T4
+        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, T5)  # поднимаем лазер на T5
+        pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_read)  # снова поднимаем лазер и считывание на t_read
+        pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # снова доподнимаем лазер до t_laser
+        pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, 1 * pb.ms) # 1 мс между измерениями
+    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 5 * pb.ms)  # все нули, задержка 5 мс между измерениями
+    pb.pb_stop_programming()
+    pb.pb_start()
+    pb.pb_close()
+def build_odmr_impulses_for_impulse_odmr_v2(t_laser,t_SVCH,t_read,T1,T2,T3,T4,T5):
+    spincore_init()
+    pb.pb_start_programming(pb.PULSE_PROGRAM)
+    start = pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, T1)  # поднимаем лазер на T1
+    pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_read)  # поднимаем лазер и считывание на t_read
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # доподнимаем лазер до t_laser
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T2)  # все нули на T2
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # поднимаем лазер2 до t_laser
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T3)  # все нули на T3
+    pb.pb_inst_pbonly(pb.ON | CH3, pb.CONTINUE, 0,t_SVCH)  # СВЧ длины t_svch
+    pb.pb_inst_pbonly(0x00, pb.CONTINUE, 0, T4)  # все нули на T4
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, T5)  # поднимаем лазер на T5
+    pb.pb_inst_pbonly(pb.ON | CH0 | CH4, pb.CONTINUE, 0, t_read)  # снова поднимаем лазер и считывание на t_read
+    pb.pb_inst_pbonly(pb.ON | CH4, pb.CONTINUE, 0, t_laser - t_read - T1)  # снова доподнимаем лазер до t_laser
+    pb.pb_inst_pbonly(pb.ON | CH2, pb.CONTINUE, 0, 100*pb.ns)  # свип
+    pb.pb_inst_pbonly(0x00, pb.BRANCH, start, 30 * pb.ms)  # все нули, задержка 5 мс между измерениями
+    pb.pb_stop_programming()
+    pb.pb_start()
+    pb.pb_close()
 
 if __name__ == "__main__":
     #build_impulses_for_imp_odmr_single(t_laser = 100, t_dark=5, t_SVCh = 100, t_sbor= 5, t_norm = 5)
     ms = pb.ms
     ns=pb.ns
     us=pb.us
-    #setup_ch4(t_high=500 * ms,t_low=500 * ms)
-    #build_impulses_for_measuring_delays(delay=200)
-    build_impulses_for_cv_odmr_v2(read_time=100 * pb.us, num_average=10)
-    #build_odmr_impulses_with_delays(t_laser=1000*us, delay_between_laser_and_read=600*us, t_read=100*us, t_dark=500*us, t_SVCH=500*us,delay_between_svch_and_second_laser=100*ns)
+    build_impulses_rabi_v2(begin=0.1*us,end=3*us,time_step=0.1*us,t_laser=100*us,t_read=5*us,T1=10*us,T2=20*us,T3=30*us,T4=40*us,T5=50*us)
